@@ -4,6 +4,7 @@ import logging
 import shutil
 from pathlib import Path
 
+import cv2
 from fastapi import UploadFile
 from PIL import Image
 
@@ -43,15 +44,34 @@ def _detect_mime_type(file_path: Path) -> str | None:
         ".jpeg": "image/jpeg",
         ".png": "image/png",
         ".webp": "image/webp",
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".mov": "video/quicktime",
+        ".mkv": "video/x-matroska",
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".ogg": "audio/ogg",
+        ".m4a": "audio/mp4",
+        ".aac": "audio/aac",
     }
     return extension_map.get(ext)
 
 
-async def validate_image_file(file: UploadFile) -> None:
-    """Validate that the upload is an acceptable image file.
+def _get_max_size_bytes(media_type: str) -> int:
+    """Return the max upload size in bytes for a given media type."""
+    if media_type == "video":
+        return settings.max_video_size_bytes
+    if media_type == "audio":
+        return settings.max_audio_size_bytes
+    return settings.max_file_size_bytes
 
-    Checks the file extension, declared content type, and size against
-    the configured limits.
+
+async def validate_media_file(file: UploadFile, media_type: str) -> None:
+    """Validate an uploaded media file (image, video, or audio).
+
+    Args:
+        file: The uploaded file.
+        media_type: One of "image", "video", "audio".
 
     Raises:
         FileValidationError: If the filename is missing.
@@ -62,27 +82,58 @@ async def validate_image_file(file: UploadFile) -> None:
         raise FileValidationError("Uploaded file has no filename")
 
     ext = Path(file.filename).suffix.lower()
-    if ext not in settings.ALLOWED_IMAGE_EXTENSIONS:
+    allowed_extensions: list[str]
+    allowed_types: list[str]
+
+    if media_type == "image":
+        allowed_extensions = settings.ALLOWED_IMAGE_EXTENSIONS
+        allowed_types = settings.ALLOWED_IMAGE_TYPES
+    elif media_type == "video":
+        allowed_extensions = settings.ALLOWED_VIDEO_EXTENSIONS
+        allowed_types = settings.ALLOWED_VIDEO_TYPES
+    elif media_type == "audio":
+        allowed_extensions = settings.ALLOWED_AUDIO_EXTENSIONS
+        allowed_types = settings.ALLOWED_AUDIO_TYPES
+    else:
+        raise FileValidationError(f"Unknown media type: {media_type}")
+
+    if ext not in allowed_extensions:
         raise UnsupportedFileTypeError(
-            f"File extension '{ext}' is not supported. "
-            f"Allowed: {', '.join(settings.ALLOWED_IMAGE_EXTENSIONS)}"
+            f"File extension '{ext}' is not supported for {media_type}. "
+            f"Allowed: {', '.join(allowed_extensions)}"
         )
 
-    if file.content_type and file.content_type not in settings.ALLOWED_IMAGE_TYPES:
+    if file.content_type and file.content_type not in allowed_types:
         raise UnsupportedFileTypeError(
-            f"Content type '{file.content_type}' is not supported. "
-            f"Allowed: {', '.join(settings.ALLOWED_IMAGE_TYPES)}"
+            f"Content type '{file.content_type}' is not supported for {media_type}. "
+            f"Allowed: {', '.join(allowed_types)}"
         )
 
     # Read content to check size
     content = await file.read()
-    if len(content) > settings.max_file_size_bytes:
+    max_size_bytes = _get_max_size_bytes(media_type)
+    if len(content) > max_size_bytes:
         raise FileTooLargeError(
             f"File size ({len(content) / (1024 * 1024):.1f} MB) exceeds the "
-            f"{settings.MAX_FILE_SIZE_MB} MB limit"
+            f"{max_size_bytes / (1024 * 1024):.0f} MB limit for {media_type}"
         )
     # Seek back so the file can be read again later
     await file.seek(0)
+
+
+async def validate_image_file(file: UploadFile) -> None:
+    """Validate that the upload is an acceptable image file."""
+    await validate_media_file(file, "image")
+
+
+async def validate_video_file(file: UploadFile) -> None:
+    """Validate that the upload is an acceptable video file."""
+    await validate_media_file(file, "video")
+
+
+async def validate_audio_file(file: UploadFile) -> None:
+    """Validate that the upload is an acceptable audio file."""
+    await validate_media_file(file, "audio")
 
 
 async def save_upload(file: UploadFile, analysis_id: str) -> Path:
@@ -124,6 +175,68 @@ def get_image_metadata(file_path: Path) -> dict:
     detected_mime = _detect_mime_type(file_path)
     if detected_mime:
         metadata["mime_type"] = detected_mime
+
+    return metadata
+
+
+def get_video_metadata(file_path: Path) -> dict:
+    """Extract basic metadata from a video file using OpenCV.
+
+    Returns a dict with keys: ``width``, ``height``, ``fps``,
+    ``frame_count``, ``duration_sec``, ``codec``, and ``mime_type``.
+    """
+    cap = cv2.VideoCapture(str(file_path))
+    if not cap.isOpened():
+        return {"mime_type": _detect_mime_type(file_path)}
+
+    try:
+        metadata: dict = {
+            "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            "fps": round(cap.get(cv2.CAP_PROP_FPS) or 0.0, 2),
+            "frame_count": int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
+        }
+        fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        metadata["duration_sec"] = round(frame_count / fps, 2) if fps > 0 else 0.0
+        metadata["codec"] = int(cap.get(cv2.CAP_PROP_FOURCC))
+    finally:
+        cap.release()
+
+    detected_mime = _detect_mime_type(file_path)
+    if detected_mime:
+        metadata["mime_type"] = detected_mime
+
+    return metadata
+
+
+def get_audio_metadata(file_path: Path) -> dict:
+    """Extract basic metadata from an audio file.
+
+    Uses soundfile if available; otherwise returns extension-based info only.
+    """
+    metadata: dict = {
+        "mime_type": _detect_mime_type(file_path),
+    }
+
+    try:
+        import soundfile as sf
+
+        info = sf.info(str(file_path))
+        metadata.update(
+            {
+                "sample_rate": info.samplerate,
+                "channels": info.channels,
+                "format": info.format,
+                "subtype": info.subtype,
+                "duration_sec": round(info.duration, 2),
+                "frames": info.frames,
+            }
+        )
+    except ImportError:
+        metadata["error"] = "soundfile not installed — limited audio metadata"
+    except Exception as exc:  # noqa: BLE001
+        metadata["error"] = f"Could not read audio metadata: {exc}"
 
     return metadata
 

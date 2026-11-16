@@ -19,8 +19,8 @@ const FEATURES = [
   {
     title: "Video Analysis",
     description:
-      "Temporal consistency checks across frames to surface synthetic or spliced footage. Under active development.",
-    tag: "Coming soon",
+      "Frame-level face-swap detection via uniform sampling. Each sampled frame runs through the EfficientNet-B0 detector — aggregated frame-level inferences, not a dedicated video model.",
+    tag: "Available",
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <rect x="2" y="5" width="14" height="14" rx="2" />
@@ -31,8 +31,8 @@ const FEATURES = [
   {
     title: "Audio Forensics",
     description:
-      "Detect synthetic speech and cloned voices through spectral and prosodic analysis. Under active development.",
-    tag: "Coming soon",
+      "Experimental spectral analysis — centroid, bandwidth, zero-crossing rate, and spectral rolloff produce a heuristic synthetic-speech indicator score. Weak signal only; not a validated detector.",
+    tag: "Experimental",
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />

@@ -3,6 +3,9 @@ import { AnimatePresence } from "framer-motion";
 import Layout from "./components/Layout";
 import Home from "./pages/Home";
 import Analyze from "./pages/Analyze";
+import VideoAnalysis from "./pages/VideoAnalysis";
+import AudioAnalysis from "./pages/AudioAnalysis";
+import Comparison from "./pages/Comparison";
 import History from "./pages/History";
 import AnalysisDetail from "./pages/AnalysisDetail";
 import About from "./pages/About";
@@ -14,6 +17,9 @@ function AnimatedRoutes() {
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={<Home />} />
         <Route path="/analyze" element={<Analyze />} />
+        <Route path="/video" element={<VideoAnalysis />} />
+        <Route path="/audio" element={<AudioAnalysis />} />
+        <Route path="/comparison" element={<Comparison />} />
         <Route path="/history" element={<History />} />
         <Route path="/analysis/:id" element={<AnalysisDetail />} />
         <Route path="/about" element={<About />} />

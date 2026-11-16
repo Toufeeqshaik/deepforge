@@ -68,6 +68,20 @@ export async function analyzeImage(file: File): Promise<AnalysisReport> {
   return data;
 }
 
+export async function analyzeVideo(file: File): Promise<AnalysisReport> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await client.post<AnalysisReport>("/analyze/video", form);
+  return data;
+}
+
+export async function analyzeAudio(file: File): Promise<AnalysisReport> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await client.post<AnalysisReport>("/analyze/audio", form);
+  return data;
+}
+
 export async function getAnalysis(id: string): Promise<AnalysisReport> {
   const { data } = await client.get<AnalysisReport>(`/analysis/${id}`);
   return data;

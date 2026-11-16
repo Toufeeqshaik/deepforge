@@ -21,7 +21,13 @@ from app.schemas.analysis import (
     VerdictLevel,
 )
 from app.services.detection_service import detection_service
-from app.services.file_service import get_image_metadata
+from app.services.file_service import (
+    get_audio_metadata,
+    get_image_metadata,
+    get_video_metadata,
+)
+from app.services.video_detection_service import video_detection_service
+from app.services.audio_detection_service import audio_detection_service
 
 
 class AnalysisService:
@@ -47,13 +53,14 @@ class AnalysisService:
         file_name: str,
         file_size: int,
         file_type: str,
+        analysis_type: AnalysisType = AnalysisType.IMAGE,
     ) -> AnalysisReport:
         """Create a new analysis record."""
         analysis_id = str(uuid.uuid4())
         report = AnalysisReport(
             analysis_id=analysis_id,
             status=AnalysisStatus.PENDING,
-            analysis_type=AnalysisType.IMAGE,
+            analysis_type=analysis_type,
             created_at=datetime.utcnow(),
             completed_at=None,
             file_name=file_name,
@@ -218,6 +225,239 @@ class AnalysisService:
             limitations=[
                 "EfficientNet-B0 fine-tuned on FaceForensics++ C23",
                 "Detects face-swap deepfakes (DeepFake, FaceSwap, Face2Face, NeuralTextures)",
+            ],
+        )
+
+    # ------------------------------------------------------------------
+    # Video analysis
+    # ------------------------------------------------------------------
+
+    def run_video_analysis(self, analysis_id: str, file_path: Path) -> AnalysisReport:
+        """Run a video analysis pipeline (frame sampling + image detector)."""
+        report = self._analyses.get(analysis_id)
+        if not report:
+            raise AnalysisError(f"Analysis {analysis_id} not found")
+
+        start_time = datetime.utcnow()
+        report.status = AnalysisStatus.PROCESSING
+        report.summary = "Validating video and sampling frames..."
+
+        try:
+            # Get video metadata
+            metadata = get_video_metadata(file_path)
+            report.metadata = metadata
+            report.summary = "Sampling frames and running face-swap detector..."
+
+            # Run video detection
+            detector_result = self._run_video_detector(file_path)
+            report.detector_results = [detector_result]
+
+            # Determine overall verdict
+            raw_score = detector_result.raw_score
+            cal_conf = detector_result.calibrated_confidence
+
+            if raw_score >= 0.85 and (cal_conf is None or cal_conf >= 0.85):
+                verdict = VerdictLevel.LIKELY_MANIPULATED
+                summary = (
+                    "Video frame sampling produced strong face-swap indicators "
+                    f"(max frame score {raw_score:.3f}). Evidence is supporting, not proof."
+                )
+            elif raw_score >= 0.70 and (cal_conf is None or cal_conf >= 0.70):
+                verdict = VerdictLevel.POTENTIALLY_MANIPULATED
+                summary = (
+                    "Video frame sampling produced moderate face-swap indicators "
+                    f"(max frame score {raw_score:.3f}). Further verification recommended."
+                )
+            elif raw_score >= 0.40 or (cal_conf is not None and cal_conf >= 0.40):
+                verdict = VerdictLevel.UNCERTAIN
+                summary = (
+                    "Video frame scores fall in the ambiguous band (0.40–0.70). "
+                    "Evidence does not support a confident conclusion."
+                )
+            else:
+                verdict = VerdictLevel.LIKELY_AUTHENTIC
+                summary = (
+                    "No strong face-swap indicators found in sampled frames. "
+                    "Not proof of authenticity — only that sampled frames scored low."
+                )
+
+            # Forensic indicators
+            indicators = [
+                f"Frames analyzed: {detector_result.details.get('frames_analyzed', 0)}",
+                f"Total frames: {metadata.get('frame_count', 'unknown')}",
+                f"Duration: {metadata.get('duration_sec', 'unknown')}s",
+                f"Max frame fake score: {raw_score:.3f}",
+            ]
+            if metadata.get("width") and metadata.get("height"):
+                indicators.append(f"Resolution: {metadata['width']} × {metadata['height']}")
+
+            limitations = [
+                "No dedicated video deepfake model — uses frame sampling with EfficientNet-B0.",
+                "No optical-flow / temporal-consistency analysis.",
+                "No audio-visual fusion.",
+                "Results are frame-level inferences aggregated over sampled frames.",
+                "Cross-dataset accuracy drops on newer manipulations or heavily compressed video.",
+            ]
+
+            elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+
+            report.overall_verdict = verdict
+            report.summary = summary
+            report.forensic_indicators = indicators
+            report.limitations = limitations
+            report.processing_time_ms = round(elapsed_ms, 2)
+            report.status = AnalysisStatus.COMPLETED
+            report.completed_at = datetime.utcnow()
+
+            return report
+
+        except ModelNotAvailableError as e:
+            elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            report.overall_verdict = VerdictLevel.INCONCLUSIVE
+            report.summary = (
+                "Detection models are not yet integrated. Video was uploaded and "
+                "validated, but no AI analysis could be performed."
+            )
+            report.limitations = [f"Model error: {e.message}", "No detection models loaded"]
+            report.processing_time_ms = round(elapsed_ms, 2)
+            report.status = AnalysisStatus.FAILED
+            report.completed_at = datetime.utcnow()
+            return report
+
+        except Exception as e:
+            report.overall_verdict = VerdictLevel.INCONCLUSIVE
+            report.summary = f"Video analysis failed: {e}"
+            report.limitations = ["Unexpected error during video analysis"]
+            report.status = AnalysisStatus.FAILED
+            report.completed_at = datetime.utcnow()
+            return report
+
+    # ------------------------------------------------------------------
+    # Audio analysis
+    # ------------------------------------------------------------------
+
+    def run_audio_analysis(self, analysis_id: str, file_path: Path) -> AnalysisReport:
+        """Run an audio analysis pipeline (experimental spectral heuristics)."""
+        report = self._analyses.get(analysis_id)
+        if not report:
+            raise AnalysisError(f"Analysis {analysis_id} not found")
+
+        start_time = datetime.utcnow()
+        report.status = AnalysisStatus.PROCESSING
+        report.summary = "Validating audio and computing spectral features..."
+
+        try:
+            # Get audio metadata
+            metadata = get_audio_metadata(file_path)
+            report.metadata = metadata
+            report.summary = "Computing spectral indicators..."
+
+            # Run audio detection
+            detector_result = self._run_audio_detector(file_path)
+            report.detector_results = [detector_result]
+
+            # Determine overall verdict
+            raw_score = detector_result.raw_score
+
+            if raw_score >= 0.75:
+                verdict = VerdictLevel.POTENTIALLY_MANIPULATED
+                summary = (
+                    "Audio spectral analysis produced synthetic-speech indicators "
+                    f"(score {raw_score:.3f}). This is an experimental heuristic — "
+                    "not a validated deepfake detector."
+                )
+            elif raw_score >= 0.40:
+                verdict = VerdictLevel.UNCERTAIN
+                summary = (
+                    "Audio score falls in the ambiguous band. "
+                    "Evidence does not support a confident conclusion."
+                )
+            else:
+                verdict = VerdictLevel.LIKELY_AUTHENTIC
+                summary = (
+                    "No strong synthetic-speech indicators found. "
+                    "Not proof of authenticity — this is an experimental heuristic."
+                )
+
+            indicators = [
+                f"Duration: {metadata.get('duration_sec', 'unknown')}s",
+                f"Sample rate: {metadata.get('sample_rate', 'unknown')} Hz",
+                f"Spectral centroid: {metadata.get('spectral_centroid_hz', 'unknown')} Hz",
+                f"Raw synthetic indicator score: {raw_score:.3f}",
+            ]
+
+            limitations = [
+                "No dedicated audio deepfake model (e.g., RawNet2, AASIST).",
+                "Experimental spectral heuristics only — not validated for detection.",
+                "No speaker-verification embedding or prosody analysis.",
+                "Results should be treated as weak signals only.",
+            ]
+
+            elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+
+            report.overall_verdict = verdict
+            report.summary = summary
+            report.forensic_indicators = indicators
+            report.limitations = limitations
+            report.processing_time_ms = round(elapsed_ms, 2)
+            report.status = AnalysisStatus.COMPLETED
+            report.completed_at = datetime.utcnow()
+
+            return report
+
+        except Exception as e:
+            report.overall_verdict = VerdictLevel.INCONCLUSIVE
+            report.summary = f"Audio analysis failed: {e}"
+            report.limitations = ["Unexpected error during audio analysis"]
+            report.status = AnalysisStatus.FAILED
+            report.completed_at = datetime.utcnow()
+            return report
+
+    def _run_video_detector(self, file_path: Path) -> DetectorResult:
+        """Run the video detection service and return a DetectorResult."""
+        score = video_detection_service.run_detection(file_path)
+
+        verdict = video_detection_service.classify_verdict(
+            score["raw_score"],
+            score.get("calibrated_confidence"),
+        )
+
+        return DetectorResult(
+            detector_name="EfficientNet-B0 + uniform frame sampling",
+            detector_version="v1.0",
+            verdict=verdict,
+            raw_score=score["raw_score"],
+            calibrated_confidence=score.get("calibrated_confidence"),
+            processing_time_ms=score["processing_time_ms"],
+            details=score["details"],
+            limitations=[
+                "Frame sampling, not a dedicated video model",
+                "No temporal-consistency analysis",
+                "EfficientNet-B0 fine-tuned on FaceForensics++ C23",
+            ],
+        )
+
+    def _run_audio_detector(self, file_path: Path) -> DetectorResult:
+        """Run the audio detection service and return a DetectorResult."""
+        score = audio_detection_service.run_detection(file_path)
+
+        verdict = audio_detection_service.classify_verdict(
+            score["raw_score"],
+            score.get("calibrated_confidence"),
+        )
+
+        return DetectorResult(
+            detector_name="Experimental spectral heuristics",
+            detector_version="v1.0",
+            verdict=verdict,
+            raw_score=score["raw_score"],
+            calibrated_confidence=score.get("calibrated_confidence"),
+            processing_time_ms=score["processing_time_ms"],
+            details=score["details"],
+            limitations=[
+                "No dedicated audio deepfake model",
+                "Experimental heuristic — not validated",
+                "No speaker verification or prosody analysis",
             ],
         )
 

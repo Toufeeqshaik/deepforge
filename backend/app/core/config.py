@@ -36,6 +36,41 @@ class Settings(BaseSettings):
         ".webp",
     ]
 
+    ALLOWED_VIDEO_TYPES: list[str] = [
+        "video/mp4",
+        "video/webm",
+        "video/quicktime",
+        "video/x-matroska",
+    ]
+    ALLOWED_VIDEO_EXTENSIONS: list[str] = [
+        ".mp4",
+        ".webm",
+        ".mov",
+        ".mkv",
+    ]
+
+    ALLOWED_AUDIO_TYPES: list[str] = [
+        "audio/mpeg",
+        "audio/wav",
+        "audio/ogg",
+        "audio/mp4",
+        "audio/x-m4a",
+    ]
+    ALLOWED_AUDIO_EXTENSIONS: list[str] = [
+        ".mp3",
+        ".wav",
+        ".ogg",
+        ".m4a",
+        ".aac",
+    ]
+
+    MAX_VIDEO_SIZE_MB: int = 250
+    MAX_AUDIO_SIZE_MB: int = 50
+
+    # Video frame sampling (honest: temporal detection via sampled frames)
+    VIDEO_FRAME_SAMPLE_COUNT: int = 8
+    VIDEO_MAX_DURATION_SEC: int = 300
+
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
         "http://localhost:3000",
@@ -60,6 +95,14 @@ class Settings(BaseSettings):
     @property
     def max_file_size_bytes(self) -> int:
         return self.MAX_FILE_SIZE_MB * 1024 * 1024
+
+    @property
+    def max_video_size_bytes(self) -> int:
+        return self.MAX_VIDEO_SIZE_MB * 1024 * 1024
+
+    @property
+    def max_audio_size_bytes(self) -> int:
+        return self.MAX_AUDIO_SIZE_MB * 1024 * 1024
 
 
 settings = Settings()

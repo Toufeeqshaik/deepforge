@@ -5,13 +5,14 @@ import time
 from fastapi import APIRouter, HTTPException, UploadFile
 
 from app.core.exceptions import DeepForgeException
-from app.schemas.analysis import AnalysisReport, HealthResponse
+from app.schemas.analysis import AnalysisReport, AnalysisType, HealthResponse
 from app.services import analysis_service
 from app.services.detection_service import detection_service
 from app.services.file_service import (
-    get_image_metadata,
-    validate_image_file,
     save_upload,
+    validate_audio_file,
+    validate_image_file,
+    validate_video_file,
 )
 
 router = APIRouter(prefix="/api")
@@ -70,6 +71,79 @@ async def analyze_image(file: UploadFile) -> AnalysisReport:
         saved_path = await save_upload(file, report.analysis_id)
 
         report = analysis_service.run_image_analysis(report.analysis_id, saved_path)
+        return report
+
+    except DeepForgeException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/analyze/video", response_model=AnalysisReport)
+async def analyze_video(file: UploadFile) -> AnalysisReport:
+    """Upload a video file for frame-level deepfake detection.
+
+    Video detection uses uniform frame sampling with the EfficientNet-B0
+    face-swap detector. Results are aggregated frame-level inferences,
+    not a dedicated video model.
+    """
+    try:
+        await validate_video_file(file)
+
+        content = await file.read()
+        file_size = len(content)
+        await file.seek(0)
+
+        file_name = file.filename or "upload"
+        file_type = file.content_type or "application/octet-stream"
+
+        report = analysis_service.create_analysis(
+            file_path=None,  # type: ignore[arg-type]
+            file_name=file_name,
+            file_size=file_size,
+            file_type=file_type,
+            analysis_type=AnalysisType.VIDEO,
+        )
+
+        saved_path = await save_upload(file, report.analysis_id)
+
+        report = analysis_service.run_video_analysis(report.analysis_id, saved_path)
+        return report
+
+    except DeepForgeException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/analyze/audio", response_model=AnalysisReport)
+async def analyze_audio(file: UploadFile) -> AnalysisReport:
+    """Upload an audio file for experimental spectral analysis.
+
+    Audio detection uses heuristic spectral statistics. Results are weak
+    signals only — not a validated deepfake detector.
+    """
+    try:
+        await validate_audio_file(file)
+
+        content = await file.read()
+        file_size = len(content)
+        await file.seek(0)
+
+        file_name = file.filename or "upload"
+        file_type = file.content_type or "application/octet-stream"
+
+        report = analysis_service.create_analysis(
+            file_path=None,  # type: ignore[arg-type]
+            file_name=file_name,
+            file_size=file_size,
+            file_type=file_type,
+            analysis_type=AnalysisType.AUDIO,
+        )
+
+        saved_path = await save_upload(file, report.analysis_id)
+
+        report = analysis_service.run_audio_analysis(report.analysis_id, saved_path)
         return report
 
     except DeepForgeException:

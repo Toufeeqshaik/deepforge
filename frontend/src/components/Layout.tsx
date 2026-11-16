@@ -4,7 +4,9 @@ import { motion } from "framer-motion";
 
 const NAV_ITEMS = [
   { to: "/", label: "Home" },
-  { to: "/analyze", label: "Analyze" },
+  { to: "/analyze", label: "Analyze Image" },
+  { to: "/video", label: "Video Analysis" },
+  { to: "/audio", label: "Audio Analysis" },
   { to: "/history", label: "History" },
   { to: "/about", label: "About" },
 ] as const;

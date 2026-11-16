@@ -2,21 +2,35 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatBytes } from "../lib/format";
 
-const ACCEPTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
-const MAX_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
+const DEFAULT_ACCEPTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
+const DEFAULT_MAX_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
 
 type ValidationReason = "unsupported-type" | "too-large" | null;
 
-function validateFile(file: File): ValidationReason {
+function validateFile(
+  file: File,
+  acceptedExtensions: string[],
+  maxSizeBytes: number,
+): ValidationReason {
   const lowerName = file.name.toLowerCase();
-  const hasKnownExtension = ACCEPTED_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
+  const hasKnownExtension = acceptedExtensions.some((ext) => lowerName.endsWith(ext));
   // Trust declared MIME type when the extension is missing/odd, otherwise require known ext.
-  const looksLikeImage =
-    hasKnownExtension || file.type.startsWith("image/") || file.type === "";
-  if (!looksLikeImage || (!hasKnownExtension && file.type !== "" && !file.type.startsWith("image/"))) {
+  const looksLikeMedia =
+    hasKnownExtension ||
+    file.type.startsWith("image/") ||
+    file.type.startsWith("video/") ||
+    file.type.startsWith("audio/") ||
+    file.type === "";
+  if (
+    !looksLikeMedia ||
+    (!hasKnownExtension && file.type !== "" &&
+      !file.type.startsWith("image/") &&
+      !file.type.startsWith("video/") &&
+      !file.type.startsWith("audio/"))
+  ) {
     return "unsupported-type";
   }
-  if (file.size > MAX_SIZE_BYTES) return "too-large";
+  if (file.size > maxSizeBytes) return "too-large";
   return null;
 }
 
@@ -26,18 +40,29 @@ interface UploadZoneProps {
   /** Currently selected file (controlled, so the parent owns the flow). */
   file: File | null;
   disabled?: boolean;
+  accept?: string; // e.g. ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+  maxSizeMB?: number;
 }
 
 const ERRORS: Record<Exclude<ValidationReason, null>, string> = {
-  "unsupported-type": "Unsupported file type. Please choose a .jpg, .jpeg, .png, or .webp image.",
-  "too-large": "File is too large. The maximum allowed size is 50 MB.",
+  "unsupported-type": "Unsupported file type for this workspace.",
+  "too-large": "File is too large for this workspace.",
 };
 
-export default function UploadZone({ onFileChange, file, disabled = false }: UploadZoneProps) {
+export default function UploadZone({
+  onFileChange,
+  file,
+  disabled = false,
+  accept = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp",
+  maxSizeMB = 50,
+}: UploadZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<ValidationReason>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  const acceptedExtensions = acceptedExtensionsFromAccept(accept);
+  const maxSizeBytes = maxSizeMB * 1024 * 1024;
 
   // Keep an object URL for the thumbnail and revoke it on change/unmount.
   useEffect(() => {
@@ -52,7 +77,7 @@ export default function UploadZone({ onFileChange, file, disabled = false }: Upl
 
   const acceptFile = useCallback(
     (candidate: File) => {
-      const reason = validateFile(candidate);
+      const reason = validateFile(candidate, acceptedExtensions, maxSizeBytes);
       setError(reason);
       if (reason) {
         onFileChange(null);
@@ -60,7 +85,7 @@ export default function UploadZone({ onFileChange, file, disabled = false }: Upl
       }
       onFileChange(candidate);
     },
-    [onFileChange],
+    [acceptedExtensions, maxSizeBytes, onFileChange],
   );
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
@@ -86,14 +111,17 @@ export default function UploadZone({ onFileChange, file, disabled = false }: Upl
     onFileChange(null);
   };
 
+  const isMedia = file ? file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/") : false;
+  const isImage = file ? file.type.startsWith("image/") : false;
+
   return (
     <div>
       <input
         ref={inputRef}
         type="file"
-        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+        accept={accept}
         className="sr-only"
-        aria-label="Choose an image file to analyze"
+        aria-label={isImage ? "Choose an image file to analyze" : "Choose a media file to analyze"}
         onChange={(e) => {
           const selected = e.target.files?.[0];
           if (selected) acceptFile(selected);
@@ -105,7 +133,7 @@ export default function UploadZone({ onFileChange, file, disabled = false }: Upl
         role="button"
         tabIndex={disabled ? -1 : 0}
         aria-disabled={disabled}
-        aria-label={file ? `Selected file: ${file.name}. Click to choose a different image.` : "Upload an image. Click to browse or drag and drop."}
+        aria-label={file ? `Selected file: ${file.name}. Click to choose a different file.` : "Upload a media file. Click to browse or drag and drop."}
         onClick={() => !disabled && inputRef.current?.click()}
         onKeyDown={(e) => {
           if (disabled) return;
@@ -138,7 +166,7 @@ export default function UploadZone({ onFileChange, file, disabled = false }: Upl
               className="flex flex-col items-center gap-4"
             >
               <div className="border-accent-gradient relative h-32 w-32 overflow-hidden rounded-xl sm:h-40 sm:w-40">
-                {previewUrl ? (
+                {isImage && previewUrl ? (
                   <img
                     src={previewUrl}
                     alt={`Preview of ${file.name}`}
@@ -146,9 +174,12 @@ export default function UploadZone({ onFileChange, file, disabled = false }: Upl
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center rounded-xl bg-white/5 text-3xl" aria-hidden="true">
-                    🖼️
+                    {isImage ? "🖼️" : isMedia ? "🎬" : "📄"}
                   </div>
                 )}
+                <span className="absolute left-2 top-2 rounded bg-black/50 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-widest text-white/80">
+                  preview
+                </span>
               </div>
               <div className="max-w-sm">
                 <p className="truncate text-sm font-medium text-text-primary">{file.name}</p>
@@ -189,14 +220,14 @@ export default function UploadZone({ onFileChange, file, disabled = false }: Upl
               </motion.div>
               <div>
                 <p className="text-base font-medium text-text-primary">
-                  {isDragging ? "Drop your image here" : "Drag & drop your image here"}
+                  {isDragging ? "Drop your media here" : "Drag & drop your media here"}
                 </p>
                 <p className="mt-1 text-sm text-text-muted">
                   or <span className="text-accent-cyan underline underline-offset-2">click to browse</span>
                 </p>
               </div>
               <p className="font-mono text-xs text-text-muted">
-                .jpg · .jpeg · .png · .webp — max 50 MB
+                {acceptedExtensions.join(" · ")} — max {maxSizeMB} MB
               </p>
             </motion.div>
           )}
@@ -218,4 +249,11 @@ export default function UploadZone({ onFileChange, file, disabled = false }: Upl
       </AnimatePresence>
     </div>
   );
+}
+
+function acceptedExtensionsFromAccept(accept: string): string[] {
+  return accept
+    .split(",")
+    .map((s) => s.trim().toLowerCase().replace(/^\./, ""))
+    .filter(Boolean);
 }
