@@ -12,6 +12,7 @@ CPU inference optimized for Core Ultra 7 with 8 threads.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Literal
 
 import torch
@@ -21,6 +22,10 @@ from torchvision import models
 
 from app.core.config import settings
 from app.core.exceptions import ModelNotAvailableError
+
+# Local, writable model cache directory (portable: no external-drive dependency).
+MODEL_CACHE_DIR = Path(settings.UPLOAD_DIR).parent / "models"
+MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class ImageDetectionService:
@@ -53,7 +58,7 @@ class ImageDetectionService:
             state_dict = torch.hub.load_state_dict_from_url(
                 "https://huggingface.co/Xicor9/efficientnet-b0-ffpp-c23/resolve/main/efficientnet_b0_ffpp_c23.pth",
                 map_location=self._device,
-                model_dir="/run/media/toufeeq/External/deepforge-models",
+                model_dir=str(MODEL_CACHE_DIR),
                 progress=True,
             )
 
