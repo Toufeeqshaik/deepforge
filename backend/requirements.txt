@@ -1,0 +1,15 @@
+# DeepForge Backend Dependencies
+# Tested on Python 3.15 (Fedora 45) — all versions have cp315 wheels
+
+fastapi==0.163.1
+uvicorn[standard]==0.54.0
+python-multipart==0.0.33
+pydantic==2.14.3
+pydantic-settings==2.16.3
+aiofiles==25.1.0
+Pillow==13.0.0
+
+# AI/ML
+torch==2.15.0
+torchvision==0.29.2
+transformers==5.23.0
