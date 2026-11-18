@@ -10,9 +10,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Literal, Dict, Any, Optional, List
 
 from app.core.config import settings
-from app.core.exceptions import AnalysisError, ModelNotAvailableError
+from app.core.exceptions import AnalysisError, VideoValidationError
 from app.schemas.analysis import (
     AnalysisReport,
     AnalysisStatus,
@@ -21,21 +22,31 @@ from app.schemas.analysis import (
     VerdictLevel,
 )
 from app.services.detection_service import detection_service
+from app.detectors.image.registry import MODEL_REGISTRY
 from app.services.file_service import (
-    get_audio_metadata,
-    get_image_metadata,
-    get_video_metadata,
+    save_upload,
+    validate_image_file,
+    validate_video_file,
+    validate_audio_file,
 )
 from app.services.video_detection_service import video_detection_service
-from app.services.audio_detection_service import audio_detection_service
-
+from app.detectors.video import (
+    VideoDetectionService,
+    FaceExtractor,
+    FrameSampler,
+    FrameAnalyzer,
+    TemporalAnalyzer,
+)
 
 class AnalysisService:
-    """Manages image analysis jobs and results."""
+    """Manages analysis jobs and results."""
 
     def __init__(self) -> None:
         self._analyses: dict[str, AnalysisReport] = {}
         self._load_time: float | None = None
+        self._video_service_initialized = False
+        self._image_detector_service = None
+        self._video_service = None
 
     def start(self) -> None:
         """Called at FastAPI startup: pre-load the detection model."""
@@ -44,8 +55,42 @@ class AnalysisService:
             detection_service.load()
             if detection_service.is_available:
                 self._load_time = (datetime.now() - start).total_seconds()
+                
+                # Initialize video service
+                self._initialize_video_service()
+                
         except Exception:
             pass
+
+    def _initialize_video_service(self) -> None:
+        """Initialize the video detection service."""
+        if self._video_service_initialized:
+            return
+            
+        try:
+            # Initialize video components
+            self._video_service = VideoDetectionService(
+                image_detector_service=detection_service,
+                face_extractor=FaceExtractor(),
+                frame_sampler=FrameSampler(
+                    max_frames=16,
+                    sampling_interval_sec=1.0,
+                    resize_width=224,
+                    resize_height=224
+                ),
+                temporal_analyzer=TemporalAnalyzer(
+                    min_frames_for_analysis=5,
+                    similarity_threshold=0.7,
+                    max_velocity=5.0
+                )
+            )
+            self._video_service.initialize()
+            self._video_service_initialized = True
+            logger.info("Video detection service initialized")
+            
+        except Exception as exc:
+            logger.error(f"Failed to initialize video service: {exc}")
+            raise
 
     def create_analysis(
         self,
@@ -97,39 +142,67 @@ class AnalysisService:
             detector_result = self._run_single_detector(file_path)
             report.detector_results = [detector_result]
 
-            # Determine overall verdict
+            # Determine overall verdict using combined score from multi-model detection
             raw_score = detector_result.raw_score
             cal_conf = detector_result.calibrated_confidence
 
-            # For face-swap deepfake detection (EfficientNet-B0 on FF++ C23):
-            # - >= 0.85: likely_manipulated (strong evidence)
-            # - >= 0.70: potentially_manipulated (moderate evidence)
-            # - >= 0.40: uncertain (ambiguous)
-            # - < 0.40: likely_authentic (likely real)
-            if raw_score >= 0.85 and cal_conf and cal_conf >= 0.85:
-                verdict = VerdictLevel.LIKELY_MANIPULATED
-                summary = (
-                    "The image shows strong indicators of being a face-swap deepfake. "
-                    "Multiple forensic signals align with synthetic manipulation characteristics."
-                )
-            elif raw_score >= 0.70 and cal_conf and cal_conf >= 0.70:
-                verdict = VerdictLevel.POTENTIALLY_MANIPULATED
-                summary = (
-                    "The image shows moderate indicators of being a face-swap deepfake. "
-                    "Further verification is recommended before drawing conclusions."
-                )
-            elif raw_score >= 0.40 or (cal_conf and cal_conf >= 0.40):
-                verdict = VerdictLevel.UNCERTAIN
-                summary = (
-                    "The analysis could not confidently determine authenticity. "
-                    "Evidence is mixed or inconclusive."
-                )
+            # Use the combined verdict from the detector if available,
+            # otherwise fall back to the original single-model logic
+            if detector_result.details and detector_result.details.get("combined_verdict"):
+                combined_v = detector_result.details["combined_verdict"]
+                if combined_v == "likely_manipulated":
+                    verdict = VerdictLevel.LIKELY_MANIPULATED
+                    summary = (
+                        "The image shows strong indicators of being AI-generated or "
+                        "face-swapped deepfake. Multiple forensic signals from diverse "
+                        "models align with synthetic manipulation characteristics."
+                    )
+                elif combined_v == "likely_authentic":
+                    verdict = VerdictLevel.LIKELY_AUTHENTIC
+                    summary = (
+                        "The image shows no strong indicators of AI-generation or "
+                        "face-swap manipulation. Based on this analysis, it is likely authentic."
+                    )
+                elif combined_v == "uncertain":
+                    verdict = VerdictLevel.UNCERTAIN
+                    summary = (
+                        "The analysis could not confidently determine authenticity. "
+                        "Evidence is mixed or inconclusive across the available models."
+                    )
+                else:
+                    verdict = VerdictLevel.INCONCLUSIVE
+                    summary = "Analysis inconclusive."
             else:
-                verdict = VerdictLevel.LIKELY_AUTHENTIC
-                summary = (
-                    "The image shows no strong indicators of face-swap manipulation. "
-                    "Based on this analysis, it is likely authentic."
-                )
+                # Original single-model fallback logic
+                # For face-swap deepfake detection (EfficientNet-B0 on FF++ C23):
+                # - >= 0.85: likely_manipulated (strong evidence)
+                # - >= 0.70: potentially_manipulated (moderate evidence)
+                # - >= 0.40: uncertain (ambiguous)
+                # - < 0.40: likely_authentic (likely authentic)
+                if raw_score >= 0.85 and cal_conf and cal_conf >= 0.85:
+                    verdict = VerdictLevel.LIKELY_MANIPULATED
+                    summary = (
+                        "The image shows strong indicators of being a face-swap deepfake. "
+                        "Multiple forensic signals align with synthetic manipulation characteristics."
+                    )
+                elif raw_score >= 0.70 and cal_conf and cal_conf >= 0.70:
+                    verdict = VerdictLevel.POTENTIALLY_MANIPULATED
+                    summary = (
+                        "The image shows moderate indicators of being a face-swap deepfake. "
+                        "Further verification is recommended before drawing conclusions."
+                    )
+                elif raw_score >= 0.40 or (cal_conf and cal_conf >= 0.40):
+                    verdict = VerdictLevel.UNCERTAIN
+                    summary = (
+                        "The analysis could not confidently determine authenticity. "
+                        "Evidence is mixed or inconclusive."
+                    )
+                else:
+                    verdict = VerdictLevel.LIKELY_AUTHENTIC
+                    summary = (
+                        "The image shows no strong indicators of face-swap manipulation. "
+                        "Based on this analysis, it is likely authentic."
+                    )
 
             # Build forensic indicators list
             indicators = []
@@ -154,7 +227,7 @@ class AnalysisService:
                 )
             else:
                 limitations.append(
-                    "Face-swap deepfake detector (EfficientNet-B0, FaceForensics++ C23)."
+                    "Face-swap deepfake detector (EfficientNet-B0, CommunityForensics++ C23)."
                 )
                 limitations.append(
                     "Accuracy: 85.2% (frame-level), 88%+ (video-level) on FF++ C23."
@@ -175,7 +248,6 @@ class AnalysisService:
             report.processing_time_ms = round(elapsed_ms, 2)
             report.status = AnalysisStatus.COMPLETED
             report.completed_at = datetime.utcnow()
-
             return report
 
         except ModelNotAvailableError as e:
@@ -203,37 +275,76 @@ class AnalysisService:
             return report
 
     def _run_single_detector(self, file_path: Path) -> DetectorResult:
-        """Run the detection model and return a DetectorResult."""
+        """Run the detection model and return a DetectorResult.
+
+        ImageDetectionResult keys used here:
+          "prediction"        -> "real" | "fake" | "uncertain"
+          "confidence"        -> float | None  (calibrated; None when model unavailable)
+          "processing_time_ms"-> float
+          "model_name"        -> str  (from registry via adapter)
+          "warnings"          -> list[str]
+        """
         from PIL import Image
 
         image = Image.open(file_path)
-        score = detection_service.run_detection(image)
+        score = detection_service.detect(image)
+
+        # "confidence" is the calibrated probability; use it as raw_score too.
+        # The new detect() returns combined_score and combined_verdict from all models.
+        raw = score["combined_score"] if score["combined_score"] is not None else 0.0
+        combined_verdict = score["combined_verdict"]
+        model_count = score["model_count"]
 
         verdict = detection_service.classify_verdict(
-            score["raw_score"],
-            score.get("calibrated_confidence"),
+            raw_score=raw,
+            calibrated_confidence=score["confidence"] if isinstance(score.get("confidence"), float) else None,
         )
 
+        # Pull the canonical model name from the registry entry
+        registry_name = MODEL_REGISTRY[0]["name"] if MODEL_REGISTRY else "unknown"
+
+        # Build details with per-model info
+        per_model = score.get("per_model_results", [])
+        model_details = []
+        for mres in per_model:
+            if mres.get("model_available") and mres.get("confidence") is not None:
+                model_details.append(
+                    f"{mres.get('model_name', 'unknown')}: {mres['confidence']:.2f}"
+                )
+        details_str = "; ".join(model_details) if model_details else ""
+
         return DetectorResult(
-            detector_name="Xicor9/efficientnet-b0-ffpp-c23",
+            detector_name=registry_name,
             detector_version="v1.0",
-            verdict=verdict,
-            raw_score=score["raw_score"],
-            calibrated_confidence=score.get("calibrated_confidence"),
-            processing_time_ms=score["processing_time_ms"],
-            details=score["details"],
+            verdict=combined_verdict if combined_verdict != "inconclusive" else verdict,
+            raw_score=raw,
+            calibrated_confidence=score["confidence"] if score["confidence"] is not None else None,
+            processing_time_ms=score.get("per_model_results", [{}])[0].get("processing_time_ms", score["processing_time_ms"])
+            if score.get("per_model_results")
+            else score.get("processing_time_ms", 0.0),
+            details={
+                "prediction": score.get("per_model_results", [{}])[0].get("prediction", "unknown")
+                if score.get("per_model_results")
+                else "unknown",
+                "model_available": score.get("model_available", False),
+                "device_used": score.get("per_model_results", [{}])[0].get("device_used", "cpu")
+                if score.get("per_model_results")
+                else "cpu",
+                "combined_score": score["combined_score"],
+                "combined_verdict": score["combined_verdict"],
+                "model_count": model_count,
+                "per_model_details": details_str,
+            },
             limitations=[
-                "EfficientNet-B0 fine-tuned on FaceForensics++ C23",
-                "Detects face-swap deepfakes (DeepFake, FaceSwap, Face2Face, NeuralTextures)",
+                "Multi-model detection: EfficientNet-B0 (CommunityForensics) + Imager-1-Pro (ConvNeXt-Base)",
+                "Combined score is a simple average of individual model confidences",
+                "Confidence scores are calibrated indicators, not true probabilities",
+                f"Number of models contributing: {model_count}",
             ],
         )
 
-    # ------------------------------------------------------------------
-    # Video analysis
-    # ------------------------------------------------------------------
-
     def run_video_analysis(self, analysis_id: str, file_path: Path) -> AnalysisReport:
-        """Run a video analysis pipeline (frame sampling + image detector)."""
+        """Run a video analysis pipeline."""
         report = self._analyses.get(analysis_id)
         if not report:
             raise AnalysisError(f"Analysis {analysis_id} not found")
@@ -249,69 +360,24 @@ class AnalysisService:
             report.summary = "Sampling frames and running face-swap detector..."
 
             # Run video detection
-            detector_result = self._run_video_detector(file_path)
-            report.detector_results = [detector_result]
-
-            # Determine overall verdict
-            raw_score = detector_result.raw_score
-            cal_conf = detector_result.calibrated_confidence
-
-            if raw_score >= 0.85 and (cal_conf is None or cal_conf >= 0.85):
-                verdict = VerdictLevel.LIKELY_MANIPULATED
-                summary = (
-                    "Video frame sampling produced strong face-swap indicators "
-                    f"(max frame score {raw_score:.3f}). Evidence is supporting, not proof."
-                )
-            elif raw_score >= 0.70 and (cal_conf is None or cal_conf >= 0.70):
-                verdict = VerdictLevel.POTENTIALLY_MANIPULATED
-                summary = (
-                    "Video frame sampling produced moderate face-swap indicators "
-                    f"(max frame score {raw_score:.3f}). Further verification recommended."
-                )
-            elif raw_score >= 0.40 or (cal_conf is not None and cal_conf >= 0.40):
-                verdict = VerdictLevel.UNCERTAIN
-                summary = (
-                    "Video frame scores fall in the ambiguous band (0.40–0.70). "
-                    "Evidence does not support a confident conclusion."
-                )
-            else:
-                verdict = VerdictLevel.LIKELY_AUTHENTIC
-                summary = (
-                    "No strong face-swap indicators found in sampled frames. "
-                    "Not proof of authenticity — only that sampled frames scored low."
-                )
-
-            # Forensic indicators
-            indicators = [
-                f"Frames analyzed: {detector_result.details.get('frames_analyzed', 0)}",
-                f"Total frames: {metadata.get('frame_count', 'unknown')}",
-                f"Duration: {metadata.get('duration_sec', 'unknown')}s",
-                f"Max frame fake score: {raw_score:.3f}",
-            ]
-            if metadata.get("width") and metadata.get("height"):
-                indicators.append(f"Resolution: {metadata['width']} × {metadata['height']}")
-
-            limitations = [
-                "No dedicated video deepfake model — uses frame sampling with EfficientNet-B0.",
-                "No optical-flow / temporal-consistency analysis.",
-                "No audio-visual fusion.",
-                "Results are frame-level inferences aggregated over sampled frames.",
-                "Cross-dataset accuracy drops on newer manipulations or heavily compressed video.",
-            ]
-
-            elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
-
-            report.overall_verdict = verdict
-            report.summary = summary
-            report.forensic_indicators = indicators
-            report.limitations = limitations
-            report.processing_time_ms = round(elapsed_ms, 2)
+            video_result = self._video_service.analyze_video(str(file_path))
+            report.detector_results = [self._convert_video_result(video_result)]
+            
+            # Update temporal evidence
+            result = self._temporal_analyzer.analyze()
+            report.forensic_indicators.extend(result.get("temporal_evidence", []))
+            report.warnings.extend(result.get("warnings", []))
+            if result.get("error_details"):
+                report.limitations.append(f"Video analysis error: {result['error_details']}")
+                
+            # Update report metadata and timing
+            report.processing_time_ms = result["processing_time_ms"]
             report.status = AnalysisStatus.COMPLETED
             report.completed_at = datetime.utcnow()
-
+            
             return report
 
-        except ModelNotAvailableError as e:
+        except VideoValidationError as e:
             elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
             report.overall_verdict = VerdictLevel.INCONCLUSIVE
             report.summary = (
@@ -332,9 +398,28 @@ class AnalysisService:
             report.completed_at = datetime.utcnow()
             return report
 
-    # ------------------------------------------------------------------
-    # Audio analysis
-    # ------------------------------------------------------------------
+    def _convert_video_result(self, video_result: VideoDetectionResult) -> DetectorResult:
+        """Convert VideoDetectionResult to DetectorResult for API compatibility."""
+        return DetectorResult(
+            detector_name="EfficientNet-B0 + uniform frame sampling",
+            detector_version="1.0",
+            verdict=video_result["video_verdict"] if video_result["video_verdict"] in ["likely_authentic", "potentially_manipulated", "uncertain"] else "inconclusive",
+            raw_score=video_result["confidence"] if video_result["confidence"] is not None else 0.0,
+            calibrated_confidence=video_result["confidence"],
+            processing_time_ms=video_result["processing_time_ms"],
+            details={
+                "frames_analyzed": video_result["frames_analyzed"],
+                "faces_detected": video_result["faces_detected"],
+                "frames_with_faces": video_result["frames_with_faces"],
+                "temporal_evidence_summary": "; ".join(video_result["temporal_evidence"][:3])  # Summary of first 3 points
+            },
+            limitations=[
+                "Frame sampling, not a dedicated video model",
+                "No optical-flow / temporal-consistency analysis",
+                "EfficientNet-B0 fine-tuned on FaceForensics++ C23",
+                "Temporal analysis based on frame sampling consistency",
+            ],
+        )
 
     def run_audio_analysis(self, analysis_id: str, file_path: Path) -> AnalysisReport:
         """Run an audio analysis pipeline (experimental spectral heuristics)."""
@@ -415,49 +500,29 @@ class AnalysisService:
 
     def _run_video_detector(self, file_path: Path) -> DetectorResult:
         """Run the video detection service and return a DetectorResult."""
-        score = video_detection_service.run_detection(file_path)
+        video_result = self._video_service.analyze_video(str(file_path))
+        return self._convert_video_result(video_result)
 
-        verdict = video_detection_service.classify_verdict(
-            score["raw_score"],
-            score.get("calibrated_confidence"),
-        )
-
+    def _convert_video_result(self, video_result: VideoDetectionResult) -> DetectorResult:
+        """Convert VideoDetectionResult to DetectorResult for API compatibility."""
         return DetectorResult(
             detector_name="EfficientNet-B0 + uniform frame sampling",
-            detector_version="v1.0",
-            verdict=verdict,
-            raw_score=score["raw_score"],
-            calibrated_confidence=score.get("calibrated_confidence"),
-            processing_time_ms=score["processing_time_ms"],
-            details=score["details"],
+            detector_version="1.0",
+            verdict=video_result["video_verdict"] if video_result["video_verdict"] in ["likely_authentic", "potentially_manipulated", "uncertain"] else "inconclusive",
+            raw_score=video_result["confidence"] if video_result["confidence"] is not None else 0.0,
+            calibrated_confidence=video_result["confidence"],
+            processing_time_ms=video_result["processing_time_ms"],
+            details={
+                "frames_analyzed": video_result["frames_analyzed"],
+                "faces_detected": video_result["faces_detected"],
+                "frames_with_faces": video_result["frames_with_faces"],
+                "temporal_evidence_summary": "; ".join(video_result["temporal_evidence"][:3])  # Summary of first 3 points
+            },
             limitations=[
                 "Frame sampling, not a dedicated video model",
                 "No temporal-consistency analysis",
                 "EfficientNet-B0 fine-tuned on FaceForensics++ C23",
-            ],
-        )
-
-    def _run_audio_detector(self, file_path: Path) -> DetectorResult:
-        """Run the audio detection service and return a DetectorResult."""
-        score = audio_detection_service.run_detection(file_path)
-
-        verdict = audio_detection_service.classify_verdict(
-            score["raw_score"],
-            score.get("calibrated_confidence"),
-        )
-
-        return DetectorResult(
-            detector_name="Experimental spectral heuristics",
-            detector_version="v1.0",
-            verdict=verdict,
-            raw_score=score["raw_score"],
-            calibrated_confidence=score.get("calibrated_confidence"),
-            processing_time_ms=score["processing_time_ms"],
-            details=score["details"],
-            limitations=[
-                "No dedicated audio deepfake model",
-                "Experimental heuristic — not validated",
-                "No speaker verification or prosody analysis",
+                "Temporal analysis based on frame sampling consistency",
             ],
         )
 
