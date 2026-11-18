@@ -63,3 +63,5 @@ logs/
 # Reports
 backend/reports/*.pdf
 backend/reports/*.html
+# Test data
+test_data/
