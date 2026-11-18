@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-
 from fastapi import APIRouter, HTTPException, UploadFile
 
 from app.core.exceptions import DeepForgeException
@@ -10,8 +9,8 @@ from app.services import analysis_service
 from app.services.detection_service import detection_service
 from app.services.file_service import (
     save_upload,
-    validate_audio_file,
     validate_image_file,
+    validate_audio_file,
     validate_video_file,
 )
 
@@ -32,9 +31,16 @@ async def health_check() -> HealthResponse:
     """Return platform health status, loaded models, and uptime."""
     models_loaded = []
     if detection_service.is_available:
-        models_loaded.append("Xicor9/efficientnet-b0-ffpp-c23")  # Face-swap deepfake detector
+        # Show the actual model name being used
+        models_loaded.append(detection_service.get_model_info().get("models", {}).get("community_forensics", {}).get("model_name", "CommunityForensics"))
+        if detection_service._detector_service._community_detector:
+            models_loaded.append("CommunityForensics adapter")
+        elif detection_service._detector_service._fallback_detector:
+            models_loaded.append("Fallback detector")
     elif hasattr(detection_service, "_load_error") and detection_service._load_error:
         models_loaded.append(f"model_error:{detection_service._load_error}")
+    else:
+        models_loaded.append("model_not_loaded")
 
     return HealthResponse(
         status="healthy",

@@ -150,5 +150,18 @@ class VideoDetectionService:
         return "likely_authentic"
 
 
+def analyze_video(self, video_path: str) -> dict:
+        """Analyze a video file by sampling frames and running face-swap detection.
+
+        Convenience wrapper around run_detection that returns a dict compatible
+        with the analysis service's expectations.
+
+        Returns a dict with keys:
+            label, raw_score, calibrated_confidence, processing_time_ms,
+            frames_analyzed, frame_results, details
+        """
+        return self.run_detection(video_path)
+
+
 # Module-level singleton
 video_detection_service = VideoDetectionService()
