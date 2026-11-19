@@ -2,9 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatBytes } from "../lib/format";
 
-const DEFAULT_ACCEPTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
-const DEFAULT_MAX_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
-
 type ValidationReason = "unsupported-type" | "too-large" | null;
 
 function validateFile(
