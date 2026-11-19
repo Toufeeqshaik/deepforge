@@ -1,6 +1,11 @@
 /**
  * Verdict metadata mapping. Colors come from the semantic tokens in
  * src/index.css; `inconclusive` has no token and renders neutrally.
+ * 
+ * New verdict mapping (per requirements):
+ * - likely_authentic -> Likely REAL (green)
+ * - uncertain -> Uncertain (yellow) 
+ * - potentially_manipulated / likely_manipulated -> Likely FAKE (red)
  */
 export interface VerdictMeta {
   label: string;
@@ -13,7 +18,7 @@ export interface VerdictMeta {
   /** Raw hex, for custom uses (dots, bars). */
   hex: string;
   /** Tailwind theme token name, or null for neutral verdicts. */
-  token: "verdict-authentic" | "verdict-uncertain" | "verdict-suspicious" | "verdict-manipulated" | null;
+  token: "verdict-authentic" | "verdict-uncertain" | "verdict-manipulated" | null;
 }
 
 const NEUTRAL: VerdictMeta = {
@@ -27,7 +32,7 @@ const NEUTRAL: VerdictMeta = {
 
 const MAP: Record<string, VerdictMeta> = {
   likely_authentic: {
-    label: "Likely Authentic",
+    label: "Likely REAL",
     text: "text-verdict-authentic",
     bg: "bg-verdict-authentic/10",
     border: "border-verdict-authentic/30",
@@ -43,15 +48,15 @@ const MAP: Record<string, VerdictMeta> = {
     token: "verdict-uncertain",
   },
   potentially_manipulated: {
-    label: "Potentially Manipulated",
-    text: "text-verdict-suspicious",
-    bg: "bg-verdict-suspicious/10",
-    border: "border-verdict-suspicious/30",
-    hex: "#fb923c",
-    token: "verdict-suspicious",
+    label: "Likely FAKE",
+    text: "text-verdict-manipulated",
+    bg: "bg-verdict-manipulated/10",
+    border: "border-verdict-manipulated/30",
+    hex: "#f87171",
+    token: "verdict-manipulated",
   },
   likely_manipulated: {
-    label: "Likely Manipulated",
+    label: "Likely FAKE",
     text: "text-verdict-manipulated",
     bg: "bg-verdict-manipulated/10",
     border: "border-verdict-manipulated/30",
