@@ -150,6 +150,19 @@ class ImageDetectionService:
             "model_count": len(scores),
         }
 
+    def classify_verdict(self, raw_score: float, calibrated_confidence: Optional[float] = None) -> str:
+        """Classify verdict based on score thresholds (for backward compatibility).
+        
+        REAL < 0.35 | UNCERTAIN 0.35-0.65 | FAKE > 0.65
+        """
+        score = calibrated_confidence if calibrated_confidence is not None else raw_score
+        if score < 0.35:
+            return "likely_authentic"
+        elif score > 0.65:
+            return "likely_manipulated"
+        else:
+            return "uncertain"
+
     def get_model_info(self) -> Dict[str, Any]:
         """Return information about all available models."""
         models_info: Dict[str, Any] = {}

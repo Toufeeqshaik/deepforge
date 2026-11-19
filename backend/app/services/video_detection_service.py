@@ -34,9 +34,13 @@ class VideoDetectionService:
     def __init__(self) -> None:
         self._device: Literal["cpu", "cuda"] = settings.MODEL_DEVICE  # type: ignore[assignment]
 
+    def initialize(self) -> None:
+        """Initialize the video detection service (no-op, image detector loaded separately)."""
+        pass
+
     def is_available(self) -> bool:
         """Video detection is available iff the image detector is loaded."""
-        return detection_service.is_available
+        return detection_service.is_available()
 
     def run_detection(self, video_path: Path) -> dict:
         """Sample frames from a video and run face-swap detection on each.
@@ -50,9 +54,9 @@ class VideoDetectionService:
         - frame_results: per-frame detection details
         - details: aggregation metadata
         """
-        if not detection_service.is_available:
+        if not detection_service.is_available():
             raise ModelNotAvailableError(
-                detection_service.load_error or "image detection model not loaded"
+                getattr(detection_service, '_load_error', None) or "image detection model not loaded"
             )
 
         start = time.perf_counter()
@@ -88,18 +92,31 @@ class VideoDetectionService:
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_image = Image.fromarray(frame_rgb)
 
-                result = detection_service.run_detection(pil_image)
+                result = detection_service.detect(pil_image)
+                
+                # Extract frame-level info from per_model_results
+                per_model = result.get("per_model_results", [])
+                frame_conf = 0.0
+                frame_pred = "unknown"
+                if per_model:
+                    # Use the first available model's result
+                    for mres in per_model:
+                        if mres.get("model_available") and mres.get("confidence") is not None:
+                            frame_conf = mres["confidence"]
+                            frame_pred = mres.get("prediction", "unknown")
+                            break
+                
                 frame_results.append(
                     {
                         "frame_index": int(idx),
-                        "label": result["label"],
-                        "raw_score": result["raw_score"],
-                        "calibrated_confidence": result.get("calibrated_confidence"),
+                        "label": "fake" if frame_conf >= 0.5 else "real",
+                        "raw_score": round(frame_conf, 4),
+                        "calibrated_confidence": round(frame_conf, 4) if frame_conf > 0 else None,
                     }
                 )
-                fake_probs.append(result["raw_score"])
-                if result.get("calibrated_confidence") is not None:
-                    calibrated_confs.append(result["calibrated_confidence"])
+                fake_probs.append(frame_conf)
+                if frame_conf > 0:
+                    calibrated_confs.append(frame_conf)
 
         finally:
             cap.release()
@@ -149,18 +166,55 @@ class VideoDetectionService:
             return "uncertain"
         return "likely_authentic"
 
-
-def analyze_video(self, video_path: str) -> dict:
+    def analyze_video(self, video_path: str) -> dict:
         """Analyze a video file by sampling frames and running face-swap detection.
 
-        Convenience wrapper around run_detection that returns a dict compatible
-        with the analysis service's expectations.
-
-        Returns a dict with keys:
-            label, raw_score, calibrated_confidence, processing_time_ms,
-            frames_analyzed, frame_results, details
+        Returns a dict compatible with the analysis service's VideoDetectionResult expectations.
         """
-        return self.run_detection(video_path)
+        detection_result = self.run_detection(Path(video_path))
+        
+        # Compute aggregated verdict and confidence
+        frame_results = detection_result.get("frame_results", [])
+        frames_analyzed = len(frame_results)
+        
+        # Extract fake probabilities from frame results
+        fake_probs = [fr.get("raw_score", 0.0) for fr in frame_results]
+        max_fake_prob = max(fake_probs) if fake_probs else 0.0
+        mean_fake_prob = sum(fake_probs) / len(fake_probs) if fake_probs else 0.0
+        
+        # Calibrated confidence (mean of calibrated confidences, or mean of raw if None)
+        calibrated_confs = [fr.get("calibrated_confidence") for fr in frame_results if fr.get("calibrated_confidence") is not None]
+        mean_calibrated = sum(calibrated_confs) / len(calibrated_confs) if calibrated_confs else mean_fake_prob
+        
+        # Determine video-level verdict
+        video_verdict = self.classify_verdict(max_fake_prob, mean_calibrated)
+        
+        # Build temporal evidence
+        temporal_evidence = []
+        if frames_analyzed > 0:
+            temporal_evidence.append(f"Analyzed {frames_analyzed} sampled frames")
+            if max_fake_prob >= 0.5:
+                temporal_evidence.append(f"Max frame fake probability: {max_fake_prob:.2f}")
+            else:
+                temporal_evidence.append(f"Max frame fake probability: {max_fake_prob:.2f} (below 0.5 threshold)")
+        
+        return {
+            "status": "completed",
+            "video_verdict": video_verdict,
+            "confidence": round(mean_calibrated, 4) if mean_calibrated is not None else None,
+            "model_name": "EfficientNet-B0 + uniform frame sampling",
+            "model_version": "1.0",
+            "processing_time_ms": detection_result.get("processing_time_ms", 0.0),
+            "device_used": detection_result.get("details", {}).get("device", "cpu"),
+            "video_metadata": detection_result.get("details", {}),
+            "frames_analyzed": frames_analyzed,
+            "faces_detected": 0,  # Not tracking faces in this version
+            "frames_with_faces": 0,
+            "frame_level_results": frame_results,
+            "temporal_evidence": temporal_evidence,
+            "warnings": [],
+            "error_details": None,
+        }
 
 
 # Module-level singleton

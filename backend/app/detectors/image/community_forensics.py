@@ -1,6 +1,7 @@
 """Community Forensics image detection adapter."""
 
 import time
+import base64
 import torch
 import torch.nn as nn
 import torchvision
@@ -221,7 +222,7 @@ class CommunityForensicsAdapter(ImageDetector):
         try:
             if self._checkpoint_path is None:
                 # Try to find checkpoint in standard location
-                standard_path = Path(settings.UPLOAD_DIR).parent / "models" / "community_forensics.pth"
+                standard_path = Path(settings.UPLOAD_DIR).parent / "models" / "efficientnet_b0_ffpp_c23.pth"
                 if not standard_path.exists():
                     raise FileNotFoundError(f"Checkpoint not found at {standard_path}")
                 self._checkpoint_path = standard_path

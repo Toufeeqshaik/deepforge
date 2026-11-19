@@ -7,13 +7,17 @@ produces standardized AnalysisReport outputs. Uses an in-memory store
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, Dict, Any, Optional, List
 
 from app.core.config import settings
-from app.core.exceptions import AnalysisError, VideoValidationError
+from app.core.exceptions import AnalysisError, VideoValidationError, ModelNotAvailableError
+
+logger = logging.getLogger(__name__)
+from app.detectors.video.base import VideoDetectionResult
 from app.schemas.analysis import (
     AnalysisReport,
     AnalysisStatus,
@@ -28,15 +32,15 @@ from app.services.file_service import (
     validate_image_file,
     validate_video_file,
     validate_audio_file,
+    get_image_metadata,
+    get_video_metadata,
+    get_audio_metadata,
 )
 from app.services.video_detection_service import video_detection_service
-from app.detectors.video import (
-    VideoDetectionService,
-    FaceExtractor,
-    FrameSampler,
-    FrameAnalyzer,
-    TemporalAnalyzer,
-)
+from app.services.audio_detection_service import AudioDetectionService
+
+# Module-level audio detection service singleton
+_audio_detection_service = AudioDetectionService()
 
 class AnalysisService:
     """Manages analysis jobs and results."""
@@ -52,8 +56,8 @@ class AnalysisService:
         """Called at FastAPI startup: pre-load the detection model."""
         start = datetime.now()
         try:
-            detection_service.load()
-            if detection_service.is_available:
+            detection_service.initialize()
+            if detection_service.is_available():
                 self._load_time = (datetime.now() - start).total_seconds()
                 
                 # Initialize video service
@@ -68,23 +72,9 @@ class AnalysisService:
             return
             
         try:
-            # Initialize video components
-            self._video_service = VideoDetectionService(
-                image_detector_service=detection_service,
-                face_extractor=FaceExtractor(),
-                frame_sampler=FrameSampler(
-                    max_frames=16,
-                    sampling_interval_sec=1.0,
-                    resize_width=224,
-                    resize_height=224
-                ),
-                temporal_analyzer=TemporalAnalyzer(
-                    min_frames_for_analysis=5,
-                    similarity_threshold=0.7,
-                    max_velocity=5.0
-                )
-            )
-            self._video_service.initialize()
+            # Initialize the module-level video detection service
+            video_detection_service.initialize()
+            self._video_service = video_detection_service
             self._video_service_initialized = True
             logger.info("Video detection service initialized")
             
@@ -289,15 +279,17 @@ class AnalysisService:
         image = Image.open(file_path)
         score = detection_service.detect(image)
 
-        # "confidence" is the calibrated probability; use it as raw_score too.
         # The new detect() returns combined_score and combined_verdict from all models.
-        raw = score["combined_score"] if score["combined_score"] is not None else 0.0
+        combined_score = score["combined_score"]
         combined_verdict = score["combined_verdict"]
         model_count = score["model_count"]
 
+        # Use combined_score as the calibrated confidence
+        calibrated_conf = combined_score
+
         verdict = detection_service.classify_verdict(
-            raw_score=raw,
-            calibrated_confidence=score["confidence"] if isinstance(score.get("confidence"), float) else None,
+            raw_score=combined_score if combined_score is not None else 0.0,
+            calibrated_confidence=calibrated_conf,
         )
 
         # Pull the canonical model name from the registry entry
@@ -306,32 +298,33 @@ class AnalysisService:
         # Build details with per-model info
         per_model = score.get("per_model_results", [])
         model_details = []
+        total_processing_time = 0.0
+        first_prediction = "unknown"
+        first_device = "cpu"
         for mres in per_model:
             if mres.get("model_available") and mres.get("confidence") is not None:
                 model_details.append(
                     f"{mres.get('model_name', 'unknown')}: {mres['confidence']:.2f}"
                 )
+                total_processing_time += mres.get("processing_time_ms", 0.0)
+                if first_prediction == "unknown":
+                    first_prediction = mres.get("prediction", "unknown")
+                    first_device = mres.get("device_used", "cpu")
         details_str = "; ".join(model_details) if model_details else ""
 
         return DetectorResult(
             detector_name=registry_name,
             detector_version="v1.0",
             verdict=combined_verdict if combined_verdict != "inconclusive" else verdict,
-            raw_score=raw,
-            calibrated_confidence=score["confidence"] if score["confidence"] is not None else None,
-            processing_time_ms=score.get("per_model_results", [{}])[0].get("processing_time_ms", score["processing_time_ms"])
-            if score.get("per_model_results")
-            else score.get("processing_time_ms", 0.0),
+            raw_score=combined_score if combined_score is not None else 0.0,
+            calibrated_confidence=calibrated_conf,
+            processing_time_ms=total_processing_time,
             details={
-                "prediction": score.get("per_model_results", [{}])[0].get("prediction", "unknown")
-                if score.get("per_model_results")
-                else "unknown",
-                "model_available": score.get("model_available", False),
-                "device_used": score.get("per_model_results", [{}])[0].get("device_used", "cpu")
-                if score.get("per_model_results")
-                else "cpu",
-                "combined_score": score["combined_score"],
-                "combined_verdict": score["combined_verdict"],
+                "prediction": first_prediction,
+                "model_available": model_count > 0,
+                "device_used": first_device,
+                "combined_score": combined_score,
+                "combined_verdict": combined_verdict,
                 "model_count": model_count,
                 "per_model_details": details_str,
             },
@@ -359,19 +352,17 @@ class AnalysisService:
             report.metadata = metadata
             report.summary = "Sampling frames and running face-swap detector..."
 
-            # Run video detection
+            # Run video detection using the video detection service
             video_result = self._video_service.analyze_video(str(file_path))
             report.detector_results = [self._convert_video_result(video_result)]
             
-            # Update temporal evidence
-            result = self._temporal_analyzer.analyze()
-            report.forensic_indicators.extend(result.get("temporal_evidence", []))
-            report.warnings.extend(result.get("warnings", []))
-            if result.get("error_details"):
-                report.limitations.append(f"Video analysis error: {result['error_details']}")
+            # Update forensic indicators from video result
+            report.forensic_indicators.extend(video_result.get("temporal_evidence", []))
+            if video_result.get("error_details"):
+                report.limitations.append(f"Video analysis error: {video_result['error_details']}")
                 
             # Update report metadata and timing
-            report.processing_time_ms = result["processing_time_ms"]
+            report.processing_time_ms = video_result.get("processing_time_ms", 0.0)
             report.status = AnalysisStatus.COMPLETED
             report.completed_at = datetime.utcnow()
             
@@ -498,31 +489,49 @@ class AnalysisService:
             report.completed_at = datetime.utcnow()
             return report
 
-    def _run_video_detector(self, file_path: Path) -> DetectorResult:
-        """Run the video detection service and return a DetectorResult."""
-        video_result = self._video_service.analyze_video(str(file_path))
-        return self._convert_video_result(video_result)
-
-    def _convert_video_result(self, video_result: VideoDetectionResult) -> DetectorResult:
-        """Convert VideoDetectionResult to DetectorResult for API compatibility."""
+    def _run_audio_detector(self, file_path: Path) -> DetectorResult:
+        """Run the audio detection service and return a DetectorResult."""
+        audio_result = _audio_detection_service.run_detection(str(file_path))
+        
+        prediction = audio_result.get("prediction", "unknown")
+        confidence = audio_result.get("confidence")
+        fake_prob = audio_result.get("fake_prob")
+        real_prob = audio_result.get("real_prob")
+        processing_time_ms = audio_result.get("processing_time_ms", 0.0)
+        model_available = audio_result.get("model_available", False)
+        warnings = audio_result.get("warnings", [])
+        
+        # Use fake_prob as raw_score
+        raw_score = fake_prob if fake_prob is not None else 0.0
+        calibrated_confidence = confidence
+        
+        # Determine verdict based on score
+        if raw_score >= 0.75:
+            verdict = "potentially_manipulated"
+        elif raw_score >= 0.40:
+            verdict = "uncertain"
+        else:
+            verdict = "likely_authentic"
+        
         return DetectorResult(
-            detector_name="EfficientNet-B0 + uniform frame sampling",
+            detector_name="wav2vec2-base (abhishtagatya/wav2vec2-base-960h-itw-deepfake)",
             detector_version="1.0",
-            verdict=video_result["video_verdict"] if video_result["video_verdict"] in ["likely_authentic", "potentially_manipulated", "uncertain"] else "inconclusive",
-            raw_score=video_result["confidence"] if video_result["confidence"] is not None else 0.0,
-            calibrated_confidence=video_result["confidence"],
-            processing_time_ms=video_result["processing_time_ms"],
+            verdict=verdict,
+            raw_score=raw_score,
+            calibrated_confidence=calibrated_confidence,
+            processing_time_ms=processing_time_ms,
             details={
-                "frames_analyzed": video_result["frames_analyzed"],
-                "faces_detected": video_result["faces_detected"],
-                "frames_with_faces": video_result["frames_with_faces"],
-                "temporal_evidence_summary": "; ".join(video_result["temporal_evidence"][:3])  # Summary of first 3 points
+                "prediction": prediction,
+                "fake_prob": fake_prob,
+                "real_prob": real_prob,
+                "model_available": model_available,
+                "device_used": _audio_detection_service._device,
             },
-            limitations=[
-                "Frame sampling, not a dedicated video model",
-                "No temporal-consistency analysis",
-                "EfficientNet-B0 fine-tuned on FaceForensics++ C23",
-                "Temporal analysis based on frame sampling consistency",
+            limitations=warnings + [
+                "No dedicated audio deepfake model (e.g., RawNet2, AASIST).",
+                "Experimental spectral heuristics only — not validated for detection.",
+                "No speaker-verification embedding or prosody analysis.",
+                "Results should be treated as weak signals only.",
             ],
         )
 
