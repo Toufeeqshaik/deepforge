@@ -3,7 +3,7 @@
 **AI-Powered Digital Media Forensics & Deepfake Intelligence Platform**
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python](https://img.shields.io/badge/python-3.15-blue.svg)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)
 ![React](https://img.shields.io/badge/React-19-61dafb.svg)
 ![Tailwind](https://img.shields.io/badge/Tailwind-3.4-38b2ac.svg)
@@ -17,7 +17,7 @@ DeepForge is a professional-grade, AI-powered digital media forensics platform c
 ### What It Does
 
 - **Upload images** in JPG, JPEG, PNG, or WEBP format
-- **Real-time face-swap deepfake detection** using state-of-the-art models
+- **Real-time face-swap deepfake detection** using a lightweight baseline model
 - **Honest, explainable results** - never presents AI scores as absolute truth
 - **Detailed forensic reports** - calibrated confidence scores, detection details, and limitations
 
@@ -35,7 +35,7 @@ DeepForge is a professional-grade, AI-powered digital media forensics platform c
 
 ### Prerequisites
 
-- Python 3.15+
+- Python 3.11 or 3.12
 - Node.js 20+
 - Git
 
@@ -43,7 +43,7 @@ DeepForge is a professional-grade, AI-powered digital media forensics platform c
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/deepforge.git
+git clone <your-fork-url>
 cd deepforge
 
 # Set up backend
@@ -61,13 +61,13 @@ npm install
 
 **Terminal 1 - Backend:**
 ```bash
-cd ~/projects/deepforge/backend
+cd path/to/deepforge/backend
 .venv/bin/uvicorn app.main:app --port 8000 --host 0.0.0.0
 ```
 
 **Terminal 2 - Frontend:**
 ```bash
-cd ~/projects/deepforge/frontend
+cd path/to/deepforge/frontend
 npm run dev
 ```
 
@@ -101,8 +101,7 @@ DeepForge uses a model trained on **FaceForensics++ C23** to detect:
 | Model | Xicor9/efficientnet-b0-ffpp-c23 |
 | Architecture | EfficientNet-B0 |
 | Training Dataset | FaceForensics++ C23 |
-| Frame-Level Accuracy | 85.2% |
-| Video-Level Accuracy | 88%+ |
+| Frame-Level Accuracy | 85.2% (model author's benchmark on FF++ C23, not our own testing) |
 | Inference Time | ~30ms on CPU |
 
 ---
@@ -113,13 +112,13 @@ DeepForge uses a model trained on **FaceForensics++ C23** to detect:
 
 - ❌ **Not legal evidence** - Results are forensic indicators, not courtroom proof
 - ❌ **Not 100% accurate** - Expect false positives/negatives (~10-15%)
-- ❌ **Not for face-swap detection only** - Works best on diffusion-era synthetic media
+- ❌ **Trained on face-swap data only** - Designed to detect face-swap manipulations (DeepFake, FaceSwap, Face2Face, NeuralTextures) from the FaceForensics++ dataset
 
 ### Honest Limitations
 
 From the UI, users see:
 
-> "Face-swap deepfake detector (EfficientNet-B0, FaceForensics++ C23). Accuracy: 85.2% (frame-level), 88%+ (video-level) on FF++ C23. Cross-dataset accuracy drops on newer manipulations or heavily compressed images. Confidence scores are calibrated indicators, not true probabilities."
+> "Face-swap deepfake detector (EfficientNet-B0, FaceForensics++ C23). Accuracy: 85.2% (frame-level) on FF++ C23 per the model author's benchmark — not verified by our own testing. Cross-dataset accuracy drops on newer manipulations or heavily compressed images. Confidence scores are calibrated indicators, not true probabilities."
 
 ### Privacy & Security
 
@@ -144,7 +143,7 @@ cd ../backend
 .venv/bin/uvicorn app.main:app --port 8000 --host 0.0.0.0 --reload
 
 # Run frontend (in another terminal)
-cd ../frontend
+cd path/to/deepforge/frontend
 npm run dev
 ```
 
@@ -186,6 +185,25 @@ deepforge/
 - [ ] Multimodal analysis (audio + video)
 - [ ] Explainable AI visualizations (Grad-CAM heatmaps)
 - [ ] PDF report generation
+
+---
+
+## Models and Licenses
+
+| Model | Source | License | Used for |
+|---|---|---|---|
+| EfficientNet-B0 (ffpp-c23) | [Xicor9/efficientnet-b0-ffpp-c23](https://huggingface.co/Xicor9/efficientnet-b0-ffpp-c23) on Hugging Face | verify on the model page | Face-swap deepfake detection in images |
+
+> **Note:** Always check the model card on Hugging Face before using this model in any commercial or research context. The FaceForensics++ training data has its own [terms of use](https://github.com/ondyari/FaceForensics).
+
+---
+
+## Known Limitations
+
+- **Fully AI-generated images are not reliably detected.** The model was trained on face-swap manipulations (DeepFake, FaceSwap, Face2Face, NeuralTextures). It was not trained on diffusion-model outputs such as those from Midjourney, Stable Diffusion, or DALL-E, and may give incorrect or misleading scores on those images.
+- **Compression degrades accuracy.** Heavy JPEG compression or resizing can remove the subtle artifacts the model relies on, leading to false negatives.
+- **Single-image analysis only.** Video deepfake detection is not yet implemented; uploading a video frame is not a substitute for temporal analysis.
+- **Accuracy figures are from the model author's benchmark**, measured on the FaceForensics++ C23 test set. Performance on other datasets or real-world images may differ significantly.
 
 ---
 
