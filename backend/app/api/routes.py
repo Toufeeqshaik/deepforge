@@ -30,15 +30,10 @@ def set_startup_time(t: float) -> None:
 async def health_check() -> HealthResponse:
     """Return platform health status, loaded models, and uptime."""
     models_loaded = []
-    if detection_service.is_available:
-        # Show the actual model name being used
-        models_loaded.append(detection_service.get_model_info().get("models", {}).get("community_forensics", {}).get("model_name", "CommunityForensics"))
-        if detection_service._detector_service._community_detector:
-            models_loaded.append("CommunityForensics adapter")
-        elif detection_service._detector_service._fallback_detector:
-            models_loaded.append("Fallback detector")
-    elif hasattr(detection_service, "_load_error") and detection_service._load_error:
-        models_loaded.append(f"model_error:{detection_service._load_error}")
+    if detection_service.is_available():
+        model_info = detection_service.get_model_info()
+        for name, info in model_info.get("models_available", {}).items():
+            models_loaded.append(f"{name}: {info.get('model_name', 'Unknown')}")
     else:
         models_loaded.append("model_not_loaded")
 

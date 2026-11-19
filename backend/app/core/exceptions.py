@@ -31,6 +31,13 @@ class UnsupportedFileTypeError(DeepForgeException):
         super().__init__(message, status_code=415)
 
 
+class VideoValidationError(DeepForgeException):
+    """Raised when an uploaded video file fails validation."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, status_code=400)
+
+
 class AnalysisError(DeepForgeException):
     """Raised when an analysis operation fails."""
 
