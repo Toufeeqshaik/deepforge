@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight, Film, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import UploadZone from "../components/UploadZone";
 import GlassCard from "../components/GlassCard";
 import { analyzeVideo, apiErrorMessage } from "../lib/api";
@@ -174,7 +174,14 @@ export default function VideoAnalysis() {
 
         {phase === "done" && report && (
           <div className="space-y-6">
-            <AnalysisResults report={report} />
+            <AnalysisResults
+              report={report}
+              analysisType="video"
+              phase={phase}
+              error={error}
+              videoUrl={file ? URL.createObjectURL(file) : undefined}
+              onNewAnalysis={reset}
+            />
             <div className="text-center">
               <button
                 type="button"

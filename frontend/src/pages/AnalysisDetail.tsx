@@ -50,7 +50,15 @@ export default function AnalysisDetail() {
         </GlassCard>
       )}
 
-      {report && <AnalysisResults report={report} />}
+      {report && (
+        <AnalysisResults
+          report={report}
+          analysisType={report.analysis_type as "image" | "video" | "audio"}
+          phase="done"
+          error={error}
+          onNewAnalysis={() => {}}
+        />
+      )}
     </div>
   );
 }

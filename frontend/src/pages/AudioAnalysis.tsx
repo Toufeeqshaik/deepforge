@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight, AudioLines, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import UploadZone from "../components/UploadZone";
 import GlassCard from "../components/GlassCard";
 import { analyzeAudio, apiErrorMessage } from "../lib/api";
@@ -174,7 +174,14 @@ export default function AudioAnalysis() {
 
         {phase === "done" && report && (
           <div className="space-y-6">
-            <AnalysisResults report={report} />
+            <AnalysisResults
+              report={report}
+              analysisType="audio"
+              phase={phase}
+              error={error}
+              audioUrl={file ? URL.createObjectURL(file) : undefined}
+              onNewAnalysis={reset}
+            />
             <div className="text-center">
               <button
                 type="button"

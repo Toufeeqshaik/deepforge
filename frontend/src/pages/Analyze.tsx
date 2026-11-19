@@ -233,16 +233,13 @@ export default function Analyze() {
             transition={{ duration: 0.25, ease: "easeOut" }}
             className="space-y-6"
           >
-            <AnalysisResults report={report} />
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={reset}
-                className="glass rounded-xl px-6 py-3 text-sm font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-2 focus-visible:outline-accent-cyan"
-              >
-                Analyze another image
-              </button>
-            </div>
+            <AnalysisResults
+              report={report}
+              analysisType="image"
+              phase={phase}
+              error={error}
+              onNewAnalysis={reset}
+            />
           </motion.div>
         )}
       </AnimatePresence>
