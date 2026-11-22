@@ -10,6 +10,7 @@ import Comparison from "./pages/Comparison";
 import History from "./pages/History";
 import AnalysisDetail from "./pages/AnalysisDetail";
 import About from "./pages/About";
+import AxonStudio from "./pages/AxonStudio";
 
 function AnimatedRoutes() {
   const location = useLocation();
@@ -50,9 +51,17 @@ function AnimatedRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <Layout>
-        <AnimatedRoutes />
-      </Layout>
+      <Routes>
+        <Route path="/" element={<AxonStudio />} />
+        <Route
+          path="/*"
+          element={
+            <Layout>
+              <AnimatedRoutes />
+            </Layout>
+          }
+        />
+      </Routes>
     </BrowserRouter>
   );
 }

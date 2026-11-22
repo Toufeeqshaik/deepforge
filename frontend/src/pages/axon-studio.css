@@ -1,0 +1,20 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+.axon-page{position:fixed;inset:0;overflow:hidden;background:#000;color:#ddd;font-family:"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;font-size:13px;line-height:1.35;letter-spacing:.02em;text-transform:uppercase}
+.axon-canvas{position:fixed;inset:0;width:100%;height:100%;z-index:0;display:block}
+.axon-ui{position:fixed;inset:0;z-index:1;pointer-events:none;mix-blend-mode:plus-lighter}
+.axon-brand{position:absolute;top:24px;left:24px;display:flex;align-items:center;gap:14px;color:#fff}
+.axon-mark{width:40px;height:40px;flex:none}
+.axon-brand strong{display:block;font-family:Arial,sans-serif;font-size:20px;line-height:1.1;letter-spacing:.02em}
+.axon-brand span{display:block;margin-top:2px;color:#8a8a8a;font-size:11px;text-transform:none}
+.axon-counter{position:absolute;top:24px;right:24px;width:44px;height:44px;border:1px solid #2a2a2a;border-radius:50%;background:#0a0a0a;display:grid;place-items:center;color:#ddd;font-size:14px}
+.axon-tags{position:absolute;top:120px;left:24px;width:320px;display:flex;flex-wrap:wrap;gap:6px;pointer-events:auto}
+.axon-tags button{border:0;border-radius:2px;padding:5px 9px;background:#1c1c1c;color:#cfcfcf;font:inherit;font-size:11px;cursor:pointer;transition:background .2s,color .2s}
+.axon-tags button:hover{background:#333;color:#fff}.axon-tags button.active{background:#e6e6e6;color:#000}
+.axon-list{position:absolute;top:250px;bottom:0;left:24px;width:320px;overflow-y:auto;scrollbar-width:none;pointer-events:auto;mix-blend-mode:normal}.axon-list::-webkit-scrollbar{display:none}
+.axon-card{padding:18px 0;border-top:1px solid #2a2a2a}.axon-thumb{height:160px;overflow:hidden;border-radius:2px;background:#0a0a0a}.axon-thumb video{display:block;width:100%;height:100%;object-fit:cover}.axon-meta{display:flex;justify-content:space-between;gap:16px;margin-top:10px;font-size:12px;color:#ddd}.axon-meta span:last-child{color:#8a8a8a;text-align:right;white-space:nowrap}
+.axon-about{position:absolute;top:50%;right:90px;transform:translateY(-50%);width:380px;color:#ddd}.axon-about section+section{margin-top:2.2em}.axon-about h2{margin:0 0 1em;color:#aa88ff;font-size:13px;font-weight:400}.axon-about p{margin:0 0 1em;text-align:justify}.axon-about ul{margin:0;padding:0;list-style:inside}.axon-about li{display:inline}.axon-about li:not(:last-child)::after{content:"  ·  "}.axon-about a{display:block;width:max-content;margin:4px 0;color:#ddd;text-decoration:underline;text-underline-offset:3px;transition:opacity .3s;pointer-events:auto}.axon-about a:hover{opacity:.7}.axon-about a span{color:#8a8a8a}
+@media(max-width:1100px){.axon-about{right:24px;width:320px}}
+@media(max-width:760px){.axon-tags,.axon-list{display:none}.axon-about{left:24px;right:24px;bottom:24px;top:auto;transform:none;width:auto;max-height:55vh;overflow:auto}.axon-about section+section{margin-top:1.2em}.axon-about p{text-align:left}.axon-about h2{margin-bottom:.6em}}
+@media(max-height:700px) and (min-width:761px){.axon-about{max-height:80vh;overflow:auto}.axon-list{top:220px}.axon-tags{top:105px}}
+@media(prefers-reduced-motion:reduce){.axon-tags button,.axon-about a{transition:none}}
