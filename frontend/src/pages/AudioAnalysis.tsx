@@ -132,7 +132,7 @@ export default function AudioAnalysis() {
         </p>
       </header>
 
-      <div className="mx-auto max-w-4xl space-y-6">
+      <div className="w-full space-y-6">
         {/* Idle: Upload zone */}
         {phase === "idle" && (
           <AnimatePresence mode="wait">

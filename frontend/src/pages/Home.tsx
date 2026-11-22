@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import {
   AxonParticleField,
-  CountUpNumber,
   MagneticButton,
   ScrambleText,
 } from "../components/motion";
@@ -171,12 +170,12 @@ const PIPELINE_TONES = {
   teal: {
     dot: "bg-teal-400 shadow-[0_0_10px_rgba(45,212,191,0.55)]",
     badge: "border-teal-400/30 bg-teal-400/10 text-teal-300",
-    row: "border-white/[0.06] bg-white/[0.025]",
+    row: "border-white/[0.06]",
   },
   violet: {
     dot: "bg-violet-400 shadow-[0_0_10px_rgba(168,85,247,0.55)]",
     badge: "border-violet-400/30 bg-violet-400/10 text-violet-300",
-    row: "border-white/[0.06] bg-white/[0.025]",
+    row: "border-white/[0.06]",
   },
   amber: {
     dot: "bg-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.55)]",
@@ -191,7 +190,7 @@ function CapabilityCard({ capability }: { capability: Capability }) {
 
   return (
     <article
-      className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-[rgba(8,10,16,0.78)] p-5 backdrop-blur-md transition-all duration-300 hover:-translate-y-1 ${a.border} ${a.hoverBorder}`}
+      className={`glass group relative flex h-full flex-col overflow-hidden rounded-2xl border p-5 transition-all duration-300 hover:-translate-y-1 ${a.border} ${a.hoverBorder}`}
     >
       <span
         aria-hidden="true"
@@ -253,7 +252,7 @@ function PipelineRow({ pipeline }: { pipeline: (typeof PIPELINES)[number] }) {
   const tone = PIPELINE_TONES[pipeline.tone];
   return (
     <div
-      className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${tone.row}`}
+      className={`glass-subtle flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${tone.row}`}
     >
       <div className="flex min-w-0 items-center gap-2.5">
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} aria-hidden="true" />
@@ -273,7 +272,7 @@ function PipelineRow({ pipeline }: { pipeline: (typeof PIPELINES)[number] }) {
 
 function PipelineStatusCard() {
   return (
-    <aside className="relative overflow-hidden rounded-2xl border border-white/[0.09] bg-[rgba(8,10,16,0.78)] p-5 backdrop-blur-md">
+    <aside className="glass relative overflow-hidden rounded-2xl p-5">
       <span
         aria-hidden="true"
         className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent"
@@ -304,7 +303,7 @@ function PipelineStatusCard() {
             Detector registry
           </dt>
           <dd className="tabular-nums text-text-secondary">
-            <CountUpNumber value={6} duration={900} delay={250} suffix=" image" />
+            <span className="tabular-nums">6 image</span>
           </dd>
         </div>
         <div className="flex items-center justify-between gap-3">
@@ -330,12 +329,12 @@ function TelemetryStrip() {
   const items = [
     {
       label: "Media pipelines",
-      value: <CountUpNumber value={3} duration={900} />,
+      value: <span>3</span>,
       tone: "text-cyan-300",
     },
     {
       label: "Image detectors",
-      value: <CountUpNumber value={6} duration={900} delay={80} />,
+      value: <span>6</span>,
       tone: "text-teal-300",
     },
     {
@@ -345,13 +344,13 @@ function TelemetryStrip() {
     },
     {
       label: "Third-party assets",
-      value: <CountUpNumber value={0} duration={900} delay={160} />,
+      value: <span>0</span>,
       tone: "text-amber-300",
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 divide-white/[0.06] overflow-hidden rounded-xl border border-white/[0.07] bg-[rgba(8,10,16,0.78)] backdrop-blur-md md:grid-cols-4 md:divide-x">
+    <div className="glass grid grid-cols-2 divide-white/[0.06] overflow-hidden rounded-xl md:grid-cols-4 md:divide-x">
       {items.map((item) => (
         <div key={item.label} className="px-4 py-3">
           <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-text-muted">
@@ -379,11 +378,11 @@ export default function Home() {
           document.body,
         )}
 
-      <div className="relative z-10 space-y-12 pb-4 sm:space-y-16">
+      <div data-axon-visibility className="relative z-10 space-y-12 pb-4 sm:space-y-16">
         {/* ── Hero ───────────────────────────────────────────────────── */}
         <section aria-labelledby="hero-heading" className="stagger-children">
-          <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] lg:gap-12">
-            <div className="rounded-2xl border border-white/[0.07] bg-[rgba(8,10,16,0.78)] p-5 backdrop-blur-md sm:p-6">
+          <div className="grid items-start gap-8 lg:grid-cols-12 xl:gap-12">
+            <div className="glass rounded-2xl p-5 sm:p-6 lg:col-span-7 lg:p-8">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-cyan-300/80">
                   <ScrambleText trigger="mount" duration={520}>
@@ -470,7 +469,7 @@ export default function Home() {
               </div>
             </div>
 
-            <PipelineStatusCard />
+            <div className="lg:col-span-5"><PipelineStatusCard /></div>
           </div>
 
           <div className="mt-8">
@@ -499,7 +498,7 @@ export default function Home() {
             </span>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
             {CAPABILITIES.map((capability) => (
               <CapabilityCard key={capability.title} capability={capability} />
             ))}
@@ -592,6 +591,13 @@ export default function Home() {
             </MagneticButton>
           </div>
         </section>
+
+        <div className="glass-subtle flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-3 font-mono text-[10px] uppercase tracking-[0.14em] text-text-muted" aria-label="DeepForge forensic signals">
+          <span className="text-cyan-200/80">DeepForge / Forensic signal</span>
+          <span>Independent evidence</span>
+          <span>Client-side SHA-256</span>
+          <span>Zero third-party assets</span>
+        </div>
       </div>
     </>
   );

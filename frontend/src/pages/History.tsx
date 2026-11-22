@@ -64,7 +64,7 @@ export default function History() {
       )}
 
       {analyses !== null && analyses.length === 0 && (
-        <GlassCard className="mx-auto max-w-xl p-8 text-center stagger-children">
+        <GlassCard className="w-full p-8 text-center stagger-children">
           <h2 className="text-base font-semibold text-text-primary">No analyses yet</h2>
           <p className="mt-2 text-sm text-text-secondary">
             Run your first analysis and it will appear here.

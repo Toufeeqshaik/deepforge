@@ -52,6 +52,7 @@ type Filament = {
   geometry: THREE.BufferGeometry;
   positions: Float32Array;
   phase: number;
+  material: THREE.LineBasicMaterial;
 };
 
 function createFilamentGeometry(
@@ -134,6 +135,8 @@ export default function AxonParticleField({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const targetPointerRef = useRef({ x: 0, y: 0 });
+  const pointerActiveRef = useRef(false);
+  const pointerVelocityRef = useRef(0);
   const isVisibleRef = useRef(true);
   const isTabVisibleRef = useRef(true);
   const [reducedMotion, setReducedMotion] = useState<boolean>(() =>
@@ -161,34 +164,48 @@ export default function AxonParticleField({
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
+    const visibilityTarget = document.querySelector("[data-axon-visibility]") ?? element;
     const observer = new IntersectionObserver(
       ([entry]) => {
         isVisibleRef.current = entry.isIntersecting;
       },
       { rootMargin: "120px", threshold: 0.01 },
     );
-    observer.observe(element);
+    observer.observe(visibilityTarget);
     return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
-    const onPointerMove = (event: MouseEvent | TouchEvent) => {
-      const bounds = element.getBoundingClientRect();
-      const touch = "touches" in event ? event.touches[0] : null;
-      const clientX = touch?.clientX ?? ("clientX" in event ? event.clientX : 0);
-      const clientY = touch?.clientY ?? ("clientY" in event ? event.clientY : 0);
-      targetPointerRef.current.x =
-        ((clientX - bounds.left) / Math.max(bounds.width, 1) - 0.5) * 2;
-      targetPointerRef.current.y =
-        ((clientY - bounds.top) / Math.max(bounds.height, 1) - 0.5) * -2;
+    let lastX = window.innerWidth / 2;
+    let lastY = window.innerHeight / 2;
+
+    const onPointerMove = (event: PointerEvent) => {
+      const width = Math.max(window.innerWidth, 1);
+      const height = Math.max(window.innerHeight, 1);
+      const nextX = (event.clientX / width - 0.5) * 2;
+      const nextY = (event.clientY / height - 0.5) * -2;
+      const deltaX = event.clientX - lastX;
+      const deltaY = event.clientY - lastY;
+
+      targetPointerRef.current.x = nextX;
+      targetPointerRef.current.y = nextY;
+      pointerVelocityRef.current = Math.min(Math.hypot(deltaX, deltaY) / 36, 1);
+      pointerActiveRef.current = true;
+      lastX = event.clientX;
+      lastY = event.clientY;
     };
-    element.addEventListener("mousemove", onPointerMove, { passive: true });
-    element.addEventListener("touchmove", onPointerMove, { passive: true });
+    const onPointerLeave = () => {
+      pointerActiveRef.current = false;
+      pointerVelocityRef.current = 0;
+      targetPointerRef.current.x = 0;
+      targetPointerRef.current.y = 0;
+    };
+
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerleave", onPointerLeave, { passive: true });
     return () => {
-      element.removeEventListener("mousemove", onPointerMove);
-      element.removeEventListener("touchmove", onPointerMove);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerleave", onPointerLeave);
     };
   }, []);
 
@@ -225,6 +242,9 @@ export default function AxonParticleField({
       const starGeometry = createStarField(
         Math.max(900, Math.floor(particleCount * density)),
         width / height,
+      );
+      const starPositions = new Float32Array(
+        (starGeometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array,
       );
       const stars = new THREE.Points(
         starGeometry,
@@ -265,7 +285,7 @@ export default function AxonParticleField({
           const line = new THREE.Line(geometry, material);
           line.frustumCulled = false;
           filamentGroup.add(line);
-          filaments.push({ geometry, positions, phase: index * 0.63 + strand * 1.7 });
+          filaments.push({ geometry, positions, phase: index * 0.63 + strand * 1.7, material });
           materials.push(material);
         }
       }
@@ -276,6 +296,7 @@ export default function AxonParticleField({
       let lastTime = performance.now();
       let pointerX = 0;
       let pointerY = 0;
+      let pointerInfluence = 0;
 
       const animate = (time: number) => {
         if (!renderer) return;
@@ -288,8 +309,10 @@ export default function AxonParticleField({
         const delta = Math.min((time - lastTime) / 1000, 0.05);
         lastTime = time;
         elapsed += delta;
-        pointerX += (targetPointerRef.current.x - pointerX) * 0.035;
-        pointerY += (targetPointerRef.current.y - pointerY) * 0.035;
+        pointerX += (targetPointerRef.current.x - pointerX) * 0.07;
+        pointerY += (targetPointerRef.current.y - pointerY) * 0.07;
+        pointerInfluence += ((pointerActiveRef.current ? 1 : 0) - pointerInfluence) * 0.07;
+        pointerVelocityRef.current *= 0.9;
 
         filamentGroup.rotation.z = Math.sin(elapsed * 0.12) * 0.08;
         filamentGroup.rotation.x = pointerY * 0.055 + Math.sin(elapsed * 0.16) * 0.025;
@@ -301,22 +324,47 @@ export default function AxonParticleField({
         camera.position.y += (pointerY * 0.06 - camera.position.y) * 0.012;
         camera.lookAt(0, 0, 0);
 
-        filaments.forEach(({ geometry, positions, phase }) => {
+        const worldHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
+        const cursorWorldX = pointerX * worldHeight * camera.aspect * 0.5;
+        const cursorWorldY = pointerY * worldHeight * 0.5;
+        const pointerSpeed = pointerVelocityRef.current;
+        const starPositionAttribute = starGeometry.getAttribute("position") as THREE.BufferAttribute;
+        for (let vertex = 0; vertex < starPositions.length; vertex += 3) {
+          const x = starPositions[vertex];
+          const y = starPositions[vertex + 1];
+          const deltaX = cursorWorldX - x;
+          const deltaY = cursorWorldY - y;
+          const attraction = Math.exp(-(deltaX * deltaX + deltaY * deltaY) / 0.9) * pointerInfluence;
+          const twist = attraction * (0.025 + pointerSpeed * 0.05);
+          starPositionAttribute.array[vertex] = x + deltaX * attraction * 0.08 - deltaY * twist;
+          starPositionAttribute.array[vertex + 1] = y + deltaY * attraction * 0.08 + deltaX * twist;
+        }
+        starPositionAttribute.needsUpdate = true;
+
+        filaments.forEach(({ geometry, positions, phase, material }, filamentIndex) => {
           const attribute = geometry.getAttribute("position") as THREE.BufferAttribute;
+          let localMagneticGlow = 0;
           for (let vertex = 0; vertex < positions.length; vertex += 3) {
             const x = positions[vertex];
             const y = positions[vertex + 1];
             const z = positions[vertex + 2];
-            attribute.array[vertex] = x + Math.sin(elapsed * 0.42 + phase + y) * 0.018;
-            attribute.array[vertex + 1] = y + Math.cos(elapsed * 0.36 + phase + x) * 0.018;
-            attribute.array[vertex + 2] = z + Math.sin(elapsed * 0.5 + phase + x * 1.8) * 0.075;
+            const deltaX = cursorWorldX - x;
+            const deltaY = cursorWorldY - y;
+            const distanceSquared = deltaX * deltaX + deltaY * deltaY;
+            const magneticPull = Math.exp(-distanceSquared / 1.25) * pointerInfluence;
+            localMagneticGlow = Math.max(localMagneticGlow, magneticPull);
+            const vortexTwist = magneticPull * (0.08 + pointerSpeed * 0.14);
+            const organicX = Math.sin(elapsed * 0.42 + phase + y) * 0.018;
+            const organicY = Math.cos(elapsed * 0.36 + phase + x) * 0.018;
+
+            attribute.array[vertex] = x + organicX + deltaX * magneticPull * 0.17 - deltaY * vortexTwist;
+            attribute.array[vertex + 1] = y + organicY + deltaY * magneticPull * 0.17 + deltaX * vortexTwist;
+            attribute.array[vertex + 2] = z + Math.sin(elapsed * 0.5 + phase + x * 1.8) * 0.075 + magneticPull * (0.035 + pointerSpeed * 0.08);
           }
           attribute.needsUpdate = true;
-        });
-
-        materials.forEach((material, index) => {
-          material.opacity = (index % 3 === 1 ? 0.32 : 0.16) *
-            (0.82 + Math.sin(elapsed * 0.7 + index) * 0.18);
+          const baseOpacity = (filamentIndex % 3 === 1 ? 0.32 : 0.16) *
+            (0.82 + Math.sin(elapsed * 0.7 + filamentIndex) * 0.18);
+          material.opacity = baseOpacity * (1 + pointerSpeed * localMagneticGlow * 0.75);
         });
         render();
       };

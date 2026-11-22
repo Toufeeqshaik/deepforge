@@ -335,7 +335,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
             {/* Desktop navigation */}
             <nav
-              className="hidden shrink-0 items-center gap-2 lg:flex"
+              className="hidden min-w-0 shrink items-center gap-0.5 xl:flex"
               aria-label="Main navigation"
             >
               {NAV_ITEMS.map((item) => (
@@ -354,7 +354,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               </span>
               <button
                 type="button"
-                className="rounded-lg p-2 text-fg-3 transition-colors hover:bg-white/10 hover:text-fg-0 lg:hidden"
+                className="rounded-lg p-2 text-fg-3 transition-colors hover:bg-white/10 hover:text-fg-0 xl:hidden"
                 onClick={() => setMobileMenuOpen(true)}
                 aria-label="Open menu"
                 aria-expanded={mobileMenuOpen}
