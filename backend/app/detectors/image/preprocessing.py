@@ -54,17 +54,24 @@ class ImagePreprocessor:
         return image.resize(size, Image.Resampling.LANCZOS)
     
     @staticmethod
-    def to_tensor(image: Image.Image) -> 'torch.Tensor':
-        """Convert PIL Image to torch Tensor with normalization."""
+    def to_tensor(
+        image: Image.Image,
+        normalize: bool = False,
+        mean: list[float] | None = None,
+        std: list[float] | None = None,
+    ) -> 'torch.Tensor':
+        """Convert PIL Image to torch Tensor in [0, 1] range, with optional normalization."""
         import torch
         from torchvision import transforms
         
-        transform = transforms.Compose([
+        transform_steps = [
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225]
-            )
-        ])
+        ]
+        if normalize:
+            m = mean if mean is not None else [0.485, 0.456, 0.406]
+            s = std if std is not None else [0.229, 0.224, 0.225]
+            transform_steps.append(transforms.Normalize(mean=m, std=s))
+
+        transform = transforms.Compose(transform_steps)
         return transform(image)

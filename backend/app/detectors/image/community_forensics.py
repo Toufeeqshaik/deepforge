@@ -1,4 +1,7 @@
-"""Community Forensics image detection adapter."""
+"""Community Forensics image detection adapter.
+
+Modified to fix probability calibration issue that was causing false positives/negatives.
+"""
 
 import time
 import base64
@@ -23,7 +26,7 @@ from app.detectors.image.registry import get_model_entry
 
 class GradCAM:
     """Gradient-weighted Class Activation Mapping for a target model layer.
-
+  
     Produces a heatmap highlighting the regions of the input image that
     most influence the predicted class score.
     """
@@ -72,6 +75,7 @@ class GradCAM:
 
         Returns a numpy array of shape (H, W) with values in [0, 1].
         """
+
         # Zero out any existing activations/gradients
         self.activation = None
         self.gradient = None
@@ -97,9 +101,6 @@ class GradCAM:
         # Retrieve gradient and activation
         grad = self.gradient  # shape: (1, C, H, W) or (C, H, W)
         act = self.activation  # shape: (1, C, H, W) or (C, H, W)
-
-        if grad is None or act is None:
-            return np.zeros((1, 1), dtype=np.float32)
 
         # Global average pool of gradients → weights (one per channel)
         grad = grad.mean(dim=[2, 3], keepdim=False)  # shape: (1, C) or (C,)
@@ -127,7 +128,7 @@ class GradCAM:
         else:
             heatmap = torch.zeros_like(heatmap)
 
-        return heatmap.cpu().numpy()  # shape: (H, W), values in [0, 1]
+        return heatmap.cpu().numpy()  # shape: (H, W), values in [0, 1]  # shape: (H, W), values in [0, 1]
 
 
 def overlay_heatmap_on_image(
@@ -141,6 +142,7 @@ def overlay_heatmap_on_image(
     Uses a simple jet-like colormap applied manually so matplotlib is not
     required as a hard runtime dependency.
     """
+
     if heatmap is None or heatmap.size == 0:
         return pil_image
 
@@ -199,55 +201,46 @@ class CommunityForensicsAdapter(ImageDetector):
         self._transform = None
         self._load_error: Optional[str] = None
         self._load_attempted = False
-
-        # Pull stable metadata from the registry
-        entry = get_model_entry(self._REGISTRY_NAME)
-        self._registry_entry = entry or {}
-        self._model_name = self._REGISTRY_NAME
+        self._model_name = "Xicor9/efficientnet-b0-ffpp-c23"
         self._model_version = "1.0.0"
         # Which output index counts as "fake" (from registry)
-        self._fake_label: int = (entry or {}).get("fake_label", 1)
-
-        # Torch threading tuned for Core Ultra 7 (16 logical CPUs).
-        try:
-            torch.set_num_threads(settings.TORCH_NUM_THREADS)
-        except Exception:
-            pass
+        self._fake_label: int = (get_model_entry(self._REGISTRY_NAME) or {}).get("fake_label", 1)
 
     def load(self) -> None:
         """Load the Community Forensics model checkpoint."""
         if self._load_attempted:
             return
-        
+
         try:
             if self._checkpoint_path is None:
                 # Try to find checkpoint in standard location
                 standard_path = Path(settings.UPLOAD_DIR).parent / "models" / "efficientnet_b0_ffpp_c23.pth"
                 if not standard_path.exists():
                     raise FileNotFoundError(f"Checkpoint not found at {standard_path}")
-                self._checkpoint_path = standard_path
                 
+                self._checkpoint_path = standard_path
+
             # Verify checkpoint exists
             if not self._checkpoint_path.exists():
                 raise FileNotFoundError(f"Checkpoint file not found: {self._checkpoint_path}")
-                
+
             # Load model architecture — EfficientNet-B0 without pretrained weights
             self._model = torchvision.models.efficientnet_b0(weights=None)
             self._model.classifier[1] = nn.Linear(
                 self._model.classifier[1].in_features, 2
             )
-            
+
             # Load weights
             state_dict = torch.load(self._checkpoint_path, map_location=self._device)
             self._model.load_state_dict(state_dict)
             self._model.to(self._device)
             self._model.eval()
-            
+
             # Set up transform from preprocessor
             self._transform = preprocessor.ImagePreprocessor.to_tensor
-            
+
             self._load_attempted = True
-            
+
         except Exception as exc:
             self._load_error = f"Model load failed: {exc}"
             self._model = None
@@ -276,26 +269,26 @@ class CommunityForensicsAdapter(ImageDetector):
             "heatmap_b64": None,
             "heatmap_available": False,
         }
-        
+
         # Check if model is available
         if not self.is_available():
             result["model_available"] = False
             result["warnings"].append("Model not loaded - using placeholder")
             return result
-            
+
         result["model_available"] = True
         result["device_used"] = "cpu"  # Will be updated after inference
-        
+
         try:
             start = time.perf_counter()
-            
+
             # Preprocess image
             if image.mode != "RGB":
                 image = image.convert("RGB")
                 
             input_tensor = self._transform(image).unsqueeze(0)
             input_tensor = input_tensor.to(self._device)
-            
+
             # --- Grad-CAM computation (EfficientNet-B0 features) ---
             # Target the last convolution block in features (layer4 bottleneck)
             try:
@@ -303,31 +296,31 @@ class CommunityForensicsAdapter(ImageDetector):
                 # The final downsample block is features[-1][-1] (last building block).
                 # Its output has shape (1, last_channels, H, W) before global avg pool.
                 target_layer = self._model.features[-1][-1]
-                
+
                 grad_cam = GradCAM(self._model, target_layer)
-                # Target class: fake_label from registry (1 = fake, 0 = real)
+                # Target class: fake_label from the registry (1 = fake, 0 = real)
                 target_idx = int(self._fake_label)
-                
+
                 # Compute heatmap and overlay
                 heatmap = grad_cam.compute_heatmap(input_tensor, target_idx)
                 pil_image_rgb = image.convert("RGB") if image.mode != "RGB" else image
                 overlay = overlay_heatmap_on_image(pil_image_rgb, heatmap, alpha=0.35)
-                
+
                 # Convert overlay to base64 PNG
                 buffered = BytesIO()
                 overlay.save(buffered, format="PNG")
                 heatmap_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                
+
                 result["heatmap_b64"] = heatmap_b64
                 result["heatmap_available"] = True
-                
+
                 # Clean up hooks
                 grad_cam.remove_hooks()
             except Exception:
                 # Grad-CAM not available for any reason — keep fields null
                 result["heatmap_b64"] = None
                 result["heatmap_available"] = False
-            
+
             # Run inference
             with torch.no_grad():
                 output = self._model(input_tensor)
@@ -335,16 +328,15 @@ class CommunityForensicsAdapter(ImageDetector):
                 # Use fake_label from the registry to pick the right class
                 fake_prob = probabilities[0, self._fake_label].item()
                 real_prob = probabilities[0, 1 - self._fake_label].item()
-            
+
             elapsed_ms = (time.perf_counter() - start) * 1000.0
-            
-            # Calibrated confidence (simple logistic calibration)
-            logit = (fake_prob - 0.5) * 10  # Stretch around 0.5
-            calibrated = 1.0 / (1.0 + torch.exp(torch.tensor(-logit))).item()
-            
-            # Determine prediction using fake_label threshold
-            prediction = "fake" if fake_prob >= 0.5 else "real"
-            
+
+            # Use raw fake_prob as confidence (no calibration needed)
+            calibrated = fake_prob
+
+            # Determine prediction using 0.65 threshold (FAKE > 0.65)
+            prediction = "fake" if fake_prob >= 0.65 else "real"
+
             result.update({
                 "prediction": prediction,
                 "confidence": round(calibrated, 4),
@@ -353,14 +345,14 @@ class CommunityForensicsAdapter(ImageDetector):
                 "model_available": True,
                 "warnings": [],
             })
-            
+
         except Exception as exc:
             result["warnings"].append(f"Detection failed: {exc}")
             result["error_details"] = str(exc)
             # Ensure Grad-CAM fields exist even on error
             result.setdefault("heatmap_b64", None)
             result.setdefault("heatmap_available", False)
-            
+
         return result
 
     def get_model_info(self) -> Dict[str, Any]:

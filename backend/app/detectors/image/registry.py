@@ -41,20 +41,46 @@ MODEL_REGISTRY: list[dict[str, Any]] = [
         ],
         "preprocessing": {
             "resize": (224, 224),
-            "mean": [0.485, 0.456, 0.406],
-            "std":  [0.229, 0.224, 0.225],
+            "normalize": False,
         },
         "fake_label": 1,
         "loader": "community_forensics",
     },
     {
         # ----------------------------------------------------------------
+        # Smaug AI Image Detector — EmbeddingGemma-2 + linear classifier (439M)
+        # Source: https://huggingface.co/abacusai/Smaug-AI-Image-Detector
+        # Detects: AI-generated images (DALL·E, Midjourney, Stable Diffusion, FLUX)
+        # ----------------------------------------------------------------
+        "name": "abacusai/Smaug-AI-Image-Detector",
+        "hf_model_id": "abacusai/Smaug-AI-Image-Detector",
+        "enabled": True,
+        "targets": [
+            "AI-Generated",
+            "Midjourney",
+            "DALL·E",
+            "Stable Diffusion",
+            "FLUX",
+            "Generative AI",
+        ],
+        "preprocessing": {
+            "shorter_edge": 576,
+            "crop_size": (528, 528),
+            "crops": 1,
+        },
+        "fake_label": 1,
+        "loader": "smaug_detector",
+    },
+    {
+        # ----------------------------------------------------------------
         # Imager-1-Pro — ConvNeXt-Base AI-generated image detector
         # Source: https://huggingface.co/Imagers/imager-1-pro
         # Detects: AI-generated images (DALL·E 3, Midjourney v6, SDXL, SD3)
+        # Note: Disabled by default unless local weights are provided
         # ----------------------------------------------------------------
         "name": "Imagers/imager-1-pro",
         "hf_model_id": "Imagers/imager-1-pro",
+        "enabled": False,
         "targets": [
             "DALL·E 3",
             "Midjourney v6",
@@ -69,26 +95,6 @@ MODEL_REGISTRY: list[dict[str, Any]] = [
         },
         "fake_label": 1,
         "loader": "transformers_convnext",
-    },
-    {
-        # ----------------------------------------------------------------
-        # Audio Deepfake Detector — wav2vec2-based classifier
-        # Source: https://huggingface.co/abhishtagatya/wav2vec2-base-960h-itw-deepfake
-        # Detects: synthetic speech vs bona-fide speech
-        #   Labels: 0 = bona-fide (real), 1 = spoof (fake/AI-generated)
-        # ----------------------------------------------------------------
-        "name": "abhishtagatya/wav2vec2-base-960h-itw-deepfake",
-        "hf_model_id": "abhishtagatya/wav2vec2-base-960h-itw-deepfake",
-        "targets": [
-            "synthetic_speech",
-        ],
-        "preprocessing": {
-            "sample_rate": 16000,
-            "channels": 1,
-            "duration_sec": 10.0,
-        },
-        "fake_label": 1,  # index 1 = spoof class
-        "loader": "transformers_audio",
     },
 ]
 

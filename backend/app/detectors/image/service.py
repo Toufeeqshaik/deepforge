@@ -43,16 +43,18 @@ class ImageDetectionService:
         try:
             # Initialize detectors based on the registry
             for entry in MODEL_REGISTRY:
+                if not entry.get("enabled", True):
+                    continue
                 name = entry["name"]
                 loader_type = entry.get("loader")
 
                 if loader_type == "community_forensics":
                     detector = CommunityForensicsAdapter()
+                elif loader_type == "smaug_detector":
+                    from app.detectors.image.smaug_adapter import SmaugImageDetectorAdapter
+                    detector = SmaugImageDetectorAdapter(entry)
                 elif loader_type == "transformers_convnext":
                     detector = TransformersAdapter(entry)
-                elif loader_type == "transformers_audio":
-                    from app.detectors.audio.adapters import AudioAdapter
-                    detector = AudioAdapter(entry)
                 else:
                     logger.warning(
                         f"Unknown loader type '{loader_type}' for model {name}. Skipping."
@@ -93,6 +95,14 @@ class ImageDetectionService:
         """
         if not self._initialized:
             self.initialize()
+
+        # Validate input early: a BytesIO / raw bytes / file path is not a valid
+        # image for inference. Fail loudly instead of letting each detector
+        # swallow the error and returning a misleading "unknown" result.
+        if not isinstance(image, Image.Image):
+            raise TypeError(
+                f"detect() expects a PIL Image, got {type(image).__name__}"
+            )
 
         per_model_results: List[Dict[str, Any]] = []
         scores: List[float] = []
@@ -174,5 +184,8 @@ class ImageDetectionService:
 
         return {
             "models_available": models_info,
+            # Backward-compatible alias retained for older consumers/tests
+            # that read info["models"].
+            "models": models_info,
             "total_detectors": len(models_info),
         }

@@ -128,105 +128,85 @@ class AnalysisService:
             report.metadata = metadata
             report.summary = "Preprocessing complete. Running detection models..."
 
-            # Run detection (only one model for v1)
-            detector_result = self._run_single_detector(file_path)
-            report.detector_results = [detector_result]
+            # Run multi-model image detection
+            detector_results = self._run_image_detectors(file_path)
+            report.detector_results = detector_results
 
             # Determine overall verdict using combined score from multi-model detection
-            raw_score = detector_result.raw_score
-            cal_conf = detector_result.calibrated_confidence
+            first_res = detector_results[0] if detector_results else None
+            combined_score = (
+                first_res.details.get("combined_score")
+                if first_res and first_res.details
+                else None
+            )
+            combined_v = (
+                first_res.details.get("combined_verdict")
+                if first_res and first_res.details
+                else "inconclusive"
+            )
 
-            # Use the combined verdict from the detector if available,
-            # otherwise fall back to the original single-model logic
-            if detector_result.details and detector_result.details.get("combined_verdict"):
-                combined_v = detector_result.details["combined_verdict"]
-                if combined_v == "likely_manipulated":
-                    verdict = VerdictLevel.LIKELY_MANIPULATED
-                    summary = (
-                        "The image shows strong indicators of being AI-generated or "
-                        "face-swapped deepfake. Multiple forensic signals from diverse "
-                        "models align with synthetic manipulation characteristics."
-                    )
-                elif combined_v == "likely_authentic":
-                    verdict = VerdictLevel.LIKELY_AUTHENTIC
-                    summary = (
-                        "The image shows no strong indicators of AI-generation or "
-                        "face-swap manipulation. Based on this analysis, it is likely authentic."
-                    )
-                elif combined_v == "uncertain":
-                    verdict = VerdictLevel.UNCERTAIN
-                    summary = (
-                        "The analysis could not confidently determine authenticity. "
-                        "Evidence is mixed or inconclusive across the available models."
-                    )
-                else:
-                    verdict = VerdictLevel.INCONCLUSIVE
-                    summary = "Analysis inconclusive."
+            if combined_v == "likely_manipulated":
+                verdict = VerdictLevel.LIKELY_MANIPULATED
+                summary = (
+                    "The image shows strong indicators of being AI-generated or "
+                    "manipulated. Multi-model analysis detected synthetic generation "
+                    "or deepfake artifacts."
+                )
+            elif combined_v == "likely_authentic":
+                verdict = VerdictLevel.LIKELY_AUTHENTIC
+                summary = (
+                    "The image shows no strong indicators of AI-generation or "
+                    "face-swap manipulation across the active detection models. "
+                    "Based on this analysis, it is likely authentic."
+                )
+            elif combined_v == "uncertain":
+                verdict = VerdictLevel.UNCERTAIN
+                summary = (
+                    "The analysis could not confidently determine authenticity. "
+                    "Evidence is mixed or inconclusive across the available models."
+                )
             else:
-                # Original single-model fallback logic
-                # For face-swap deepfake detection (EfficientNet-B0 on FF++ C23):
-                # - >= 0.85: likely_manipulated (strong evidence)
-                # - >= 0.70: potentially_manipulated (moderate evidence)
-                # - >= 0.40: uncertain (ambiguous)
-                # - < 0.40: likely_authentic (likely authentic)
-                if raw_score >= 0.85 and cal_conf and cal_conf >= 0.85:
-                    verdict = VerdictLevel.LIKELY_MANIPULATED
-                    summary = (
-                        "The image shows strong indicators of being a face-swap deepfake. "
-                        "Multiple forensic signals align with synthetic manipulation characteristics."
-                    )
-                elif raw_score >= 0.70 and cal_conf and cal_conf >= 0.70:
-                    verdict = VerdictLevel.POTENTIALLY_MANIPULATED
-                    summary = (
-                        "The image shows moderate indicators of being a face-swap deepfake. "
-                        "Further verification is recommended before drawing conclusions."
-                    )
-                elif raw_score >= 0.40 or (cal_conf and cal_conf >= 0.40):
-                    verdict = VerdictLevel.UNCERTAIN
-                    summary = (
-                        "The analysis could not confidently determine authenticity. "
-                        "Evidence is mixed or inconclusive."
-                    )
-                else:
-                    verdict = VerdictLevel.LIKELY_AUTHENTIC
-                    summary = (
-                        "The image shows no strong indicators of face-swap manipulation. "
-                        "Based on this analysis, it is likely authentic."
-                    )
+                verdict = VerdictLevel.INCONCLUSIVE
+                summary = "Analysis inconclusive."
 
             # Build forensic indicators list
             indicators = []
-            if detector_result.raw_score > 0.5:
+            if combined_score is not None and combined_score > 0.5:
                 indicators.append(
-                    f"Detected AI probability: {detector_result.raw_score:.0%}"
+                    f"Overall consensus AI probability: {combined_score:.0%}"
                 )
+            for d in detector_results:
+                if d.raw_score > 0.5:
+                    indicators.append(
+                        f"{d.detector_name}: {d.raw_score:.0%} synthetic probability"
+                    )
             if metadata.get("dimensions"):
                 indicators.append(
                     f"Image dimensions: {metadata['dimensions']}"
                 )
             if metadata.get("format"):
                 indicators.append(f"File format: {metadata['format']}")
-            if not detection_service.is_available:
+            if not detection_service.is_available():
                 indicators.append("No detection models loaded")
 
             # Build limitations list
             limitations = []
-            if not detection_service.is_available:
+            if not detection_service.is_available():
                 limitations.append(
                     "Detection models are not loaded. Results are unavailable."
                 )
             else:
                 limitations.append(
-                    "Face-swap deepfake detector (EfficientNet-B0, CommunityForensics++ C23)."
+                    "Multi-model ensemble: EfficientNet-B0 (FaceForensics++ C23) + Smaug-AI (EmbeddingGemma-2)."
                 )
                 limitations.append(
-                    "Accuracy: 85.2% (frame-level), 88%+ (video-level) on FF++ C23."
+                    "EfficientNet-B0 targets facial reenactment and face-swap manipulations."
                 )
                 limitations.append(
-                    "Cross-dataset accuracy drops on newer manipulations or heavily compressed images."
+                    "Smaug-AI targets generative AI images (DALL-E, Midjourney, Stable Diffusion, FLUX)."
                 )
                 limitations.append(
-                    "Confidence scores are calibrated indicators, not true probabilities."
+                    "Combined score reflects multi-model consensus across forensic targets."
                 )
 
             elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
@@ -264,77 +244,101 @@ class AnalysisService:
             report.completed_at = datetime.utcnow()
             return report
 
-    def _run_single_detector(self, file_path: Path) -> DetectorResult:
-        """Run the detection model and return a DetectorResult.
-
-        ImageDetectionResult keys used here:
-          "prediction"        -> "real" | "fake" | "uncertain"
-          "confidence"        -> float | None  (calibrated; None when model unavailable)
-          "processing_time_ms"-> float
-          "model_name"        -> str  (from registry via adapter)
-          "warnings"          -> list[str]
-        """
+    def _run_image_detectors(self, file_path: Path) -> list[DetectorResult]:
+        """Run all active detection models on the image and return a DetectorResult per model."""
         from PIL import Image
 
         image = Image.open(file_path)
         score = detection_service.detect(image)
 
-        # The new detect() returns combined_score and combined_verdict from all models.
         combined_score = score["combined_score"]
         combined_verdict = score["combined_verdict"]
         model_count = score["model_count"]
 
-        # Use combined_score as the calibrated confidence
-        calibrated_conf = combined_score
-
-        verdict = detection_service.classify_verdict(
-            raw_score=combined_score if combined_score is not None else 0.0,
-            calibrated_confidence=calibrated_conf,
-        )
-
-        # Pull the canonical model name from the registry entry
-        registry_name = MODEL_REGISTRY[0]["name"] if MODEL_REGISTRY else "unknown"
-
-        # Build details with per-model info
         per_model = score.get("per_model_results", [])
-        model_details = []
-        total_processing_time = 0.0
-        first_prediction = "unknown"
-        first_device = "cpu"
-        for mres in per_model:
-            if mres.get("model_available") and mres.get("confidence") is not None:
-                model_details.append(
-                    f"{mres.get('model_name', 'unknown')}: {mres['confidence']:.2f}"
-                )
-                total_processing_time += mres.get("processing_time_ms", 0.0)
-                if first_prediction == "unknown":
-                    first_prediction = mres.get("prediction", "unknown")
-                    first_device = mres.get("device_used", "cpu")
-        details_str = "; ".join(model_details) if model_details else ""
+        detector_results: list[DetectorResult] = []
 
-        return DetectorResult(
-            detector_name=registry_name,
-            detector_version="v1.0",
-            verdict=combined_verdict if combined_verdict != "inconclusive" else verdict,
-            raw_score=combined_score if combined_score is not None else 0.0,
-            calibrated_confidence=calibrated_conf,
-            processing_time_ms=total_processing_time,
-            details={
-                "prediction": first_prediction,
-                "model_available": model_count > 0,
-                "device_used": first_device,
-                "combined_score": combined_score,
-                "combined_verdict": combined_verdict,
-                "model_count": model_count,
-                "per_model_details": details_str,
-            },
-            limitations=[
-                "Multi-model detection: EfficientNet-B0 (CommunityForensics) + Imager-1-Pro (ConvNeXt-Base)",
-                "Combined score is a simple average of individual model confidences",
-                "Confidence scores are calibrated indicators, not true probabilities",
-                f"Number of models contributing: {model_count}",
+        model_limitations_map = {
+            "Xicor9/efficientnet-b0-ffpp-c23": [
+                "Trained on FaceForensics++ C23 for facial manipulation & face-swaps",
+                "Frame-level AUC: 0.933, Video-level AUC: 0.94+",
+                "Works best on face-centric frames; general scene manipulation detection is limited",
             ],
-        )
+            "abacusai/Smaug-AI-Image-Detector": [
+                "439M-parameter vision fine-tune of EmbeddingGemma-2 by Abacus.AI",
+                "Specialized in detecting generative AI images (DALL-E, Midjourney, Stable Diffusion, FLUX)",
+                "Full resolution multi-crop feature encoding",
+            ],
+            "Fallback": [
+                "No detection models available; operating in degraded mode",
+            ],
+        }
+
+        for mres in per_model:
+            name = mres.get("model_name", "unknown")
+            conf = mres.get("confidence")
+            pred = mres.get("prediction", "uncertain")
+
+            if conf is not None:
+                m_verdict = (
+                    VerdictLevel.LIKELY_MANIPULATED
+                    if conf > 0.65
+                    else VerdictLevel.LIKELY_AUTHENTIC
+                    if conf < 0.35
+                    else VerdictLevel.UNCERTAIN
+                )
+            else:
+                m_verdict = VerdictLevel.INCONCLUSIVE
+
+            limitations = model_limitations_map.get(
+                name,
+                [
+                    "Multi-model ensemble member",
+                    f"Combined score: {combined_score:.2f}" if combined_score is not None else "Inconclusive",
+                ],
+            )
+
+            detector_results.append(
+                DetectorResult(
+                    detector_name=name,
+                    detector_version=mres.get("model_version", "v1.0"),
+                    verdict=m_verdict,
+                    raw_score=conf if conf is not None else 0.0,
+                    calibrated_confidence=conf,
+                    processing_time_ms=mres.get("processing_time_ms", 0.0),
+                    details={
+                        "prediction": pred,
+                        "model_available": mres.get("model_available", False),
+                        "device_used": mres.get("device_used", "cpu"),
+                        "combined_score": combined_score,
+                        "combined_verdict": combined_verdict,
+                        "model_count": model_count,
+                        "heatmap_available": mres.get("heatmap_available", False),
+                    },
+                    limitations=limitations,
+                )
+            )
+
+        if not detector_results:
+            detector_results.append(
+                DetectorResult(
+                    detector_name="fallback",
+                    detector_version="v1.0",
+                    verdict=VerdictLevel.INCONCLUSIVE,
+                    raw_score=0.0,
+                    calibrated_confidence=None,
+                    processing_time_ms=0.0,
+                    details={"model_count": 0, "combined_verdict": "inconclusive"},
+                    limitations=["No models available"],
+                )
+            )
+
+        return detector_results
+
+    def _run_single_detector(self, file_path: Path) -> DetectorResult:
+        """Backward-compatible helper returning the primary detector result."""
+        results = self._run_image_detectors(file_path)
+        return results[0]
 
     def run_video_analysis(self, analysis_id: str, file_path: Path) -> AnalysisReport:
         """Run a video analysis pipeline."""
