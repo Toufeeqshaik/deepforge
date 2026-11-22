@@ -5,6 +5,14 @@ import GlassCard from "../components/GlassCard";
 import { getAnalyses, apiErrorMessage } from "../lib/api";
 import type { AnalysisReport } from "../lib/api";
 import { formatDuration, formatTimestamp } from "../lib/format";
+import { FileIcon, VideoIcon, MusicIcon, ChevronRight } from "lucide-react";
+
+function getFileIcon(type: string) {
+  if (type.startsWith("image/")) return <FileIcon className="w-4 h-4" aria-hidden="true" />;
+  if (type.startsWith("video/")) return <VideoIcon className="w-4 h-4" aria-hidden="true" />;
+  if (type.startsWith("audio/")) return <MusicIcon className="w-4 h-4" aria-hidden="true" />;
+  return <FileIcon className="w-4 h-4" aria-hidden="true" />;
+}
 
 export default function History() {
   const [analyses, setAnalyses] = useState<AnalysisReport[] | null>(null);
@@ -37,14 +45,14 @@ export default function History() {
       </header>
 
       {error && (
-        <GlassCard role="alert" className="border-verdict-manipulated/30 p-6">
+        <GlassCard role="alert" className="border-verdict-manipulated/30 p-6 stagger-children">
           <h2 className="text-base font-semibold text-verdict-manipulated">Could not load history</h2>
           <p className="mt-1 text-sm text-text-secondary">{error}</p>
         </GlassCard>
       )}
 
       {analyses === null && !error && (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-live="polite">
+        <div className="card-grid-3" aria-busy="true" aria-live="polite">
           {[0, 1, 2].map((i) => (
             <GlassCard key={i} className="animate-pulse p-5" delay={i * 0.06}>
               <div className="h-4 w-3/4 rounded bg-white/10" />
@@ -56,14 +64,14 @@ export default function History() {
       )}
 
       {analyses !== null && analyses.length === 0 && (
-        <GlassCard className="mx-auto max-w-xl p-8 text-center">
+        <GlassCard className="mx-auto max-w-xl p-8 text-center stagger-children">
           <h2 className="text-base font-semibold text-text-primary">No analyses yet</h2>
           <p className="mt-2 text-sm text-text-secondary">
             Run your first analysis and it will appear here.
           </p>
           <Link
             to="/analyze"
-            className="bg-accent-gradient mt-5 inline-block rounded-xl px-6 py-2.5 text-sm font-semibold text-black shadow-lg focus-visible:outline-2 focus-visible:outline-accent-cyan"
+            className="btn-primary mt-5 inline-block"
           >
             Analyze Media
           </Link>
@@ -71,32 +79,34 @@ export default function History() {
       )}
 
       {analyses !== null && analyses.length > 0 && (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="card-grid-3 stagger-children">
           {analyses.map((analysis, i) => (
-            <GlassCard key={analysis.analysis_id} hoverLift delay={Math.min(i, 6) * 0.05} className="p-5">
+            <GlassCard key={analysis.analysis_id} hoverLift delay={Math.min(i, 8) * 0.05} className="p-5">
               <Link
                 to={`/analysis/${analysis.analysis_id}`}
                 className="flex h-full flex-col rounded-xl focus-visible:outline-2 focus-visible:outline-accent-cyan"
               >
-                <p className="truncate text-sm font-medium text-text-primary" title={analysis.file_name}>
-                  {analysis.file_name}
-                </p>
+                <div className="flex items-start gap-2">
+                  <div className="shrink-0 p-1.5 rounded-lg bg-white/5 border border-white/10">
+                    {getFileIcon(analysis.file_type)}
+                  </div>
+                  <p className="truncate text-sm font-medium text-text-primary" title={analysis.file_name}>
+                    {analysis.file_name}
+                  </p>
+                </div>
                 <div className="mt-3">
                   <VerdictBadge verdict={analysis.overall_verdict} size="sm" />
                 </div>
-                <div className="mt-4 flex items-end justify-between gap-3 pt-2">
+                <div className="mt-auto flex items-end justify-between gap-3 pt-2 border-t border-white/5">
                   <div className="space-y-0.5 text-xs text-text-muted">
                     <p>{formatTimestamp(analysis.created_at)}</p>
-                    <p className="font-mono">processed in {formatDuration(analysis.processing_time_ms)}</p>
+                    <p className="font-mono-tabular-xs">processed in {formatDuration(analysis.processing_time_ms)}</p>
                   </div>
                   <span
                     aria-hidden="true"
-                    className="text-accent-cyan transition-transform duration-200"
+                    className="text-accent-cyan transition-transform duration-200 group-hover:translate-x-1"
                   >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                      <polyline points="12 5 19 12 12 19" />
-                    </svg>
+                    <ChevronRight size={15} />
                   </span>
                 </div>
               </Link>

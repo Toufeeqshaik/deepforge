@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import GlassCard from "../components/GlassCard";
+import { GitBranch, ExternalLink, Shield, Search, AlertTriangle, Code } from "lucide-react";
 
 export default function About() {
   return (
@@ -15,7 +16,7 @@ export default function About() {
         </p>
       </section>
 
-      <GlassCard className="p-6 sm:p-10" delay={0.05}>
+      <GlassCard className="p-6 sm:p-10 stagger-children">
         <h2 className="text-xl font-semibold text-text-primary">Mission</h2>
         <p className="mt-3 text-sm leading-relaxed text-text-secondary sm:text-base">
           Build accessible, honest media forensics. We believe the answer to manipulated media is not
@@ -24,7 +25,7 @@ export default function About() {
         </p>
       </GlassCard>
 
-      <GlassCard className="p-6 sm:p-10" delay={0.1}>
+      <GlassCard className="p-6 sm:p-10 stagger-children">
         <h2 className="text-xl font-semibold text-text-primary">The honest-uncertainty philosophy</h2>
         <div className="mt-4 space-y-4 text-sm leading-relaxed text-text-secondary sm:text-base">
           <p>
@@ -45,11 +46,14 @@ export default function About() {
         </div>
       </GlassCard>
 
-      <GlassCard className="p-6 sm:p-10" delay={0.15}>
+      <GlassCard className="p-6 sm:p-10 stagger-children">
         <h2 className="text-xl font-semibold text-text-primary">Technology stack</h2>
         <div className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
           <div>
-            <h3 className="text-sm font-semibold text-accent-cyan">Frontend</h3>
+            <h3 className="text-sm font-semibold text-accent-cyan flex items-center gap-2">
+              <Code className="w-4 h-4" aria-hidden="true" />
+              Frontend
+            </h3>
             <ul className="mt-2 space-y-1 text-sm text-text-secondary">
               <li>· React 19 + TypeScript (strict)</li>
               <li>· Vite + Tailwind CSS v4</li>
@@ -58,19 +62,25 @@ export default function About() {
             </ul>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-accent-cyan">Backend</h3>
+            <h3 className="text-sm font-semibold text-accent-cyan flex items-center gap-2">
+              <Shield className="w-4 h-4" aria-hidden="true" />
+              Backend
+            </h3>
             <ul className="mt-2 space-y-1 text-sm text-text-secondary">
               <li>· FastAPI REST API (port 8000)</li>
               <li>· Analysis pipeline with staged reports</li>
               <li>· Pluggable detector registry</li>
-              <li>· Per-detector calibration &amp; scoring</li>
+              <li>· Per-detector calibration & scoring</li>
             </ul>
           </div>
         </div>
       </GlassCard>
 
-      <GlassCard className="border-verdict-manipulated/25 p-6 sm:p-10" delay={0.2}>
-        <h2 className="text-xl font-semibold text-verdict-manipulated">Limitations</h2>
+      <GlassCard className="border-verdict-manipulated/25 p-6 sm:p-10 stagger-children">
+        <h2 className="text-xl font-semibold text-verdict-manipulated flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5" aria-hidden="true" />
+          Limitations
+        </h2>
         <ul className="mt-4 space-y-3 text-sm leading-relaxed text-text-secondary">
           <li className="flex gap-2.5">
             <span aria-hidden="true" className="mt-2 h-1 w-1 shrink-0 rounded-full bg-verdict-manipulated" />
@@ -93,6 +103,42 @@ export default function About() {
             moderation decisions. Always corroborate with provenance and source verification.
           </li>
         </ul>
+      </GlassCard>
+
+      <GlassCard className="p-6 sm:p-10 stagger-children">
+        <h2 className="text-xl font-semibold text-text-primary">Open source & community</h2>
+        <div className="mt-4 space-y-3 text-sm text-text-secondary">
+          <p>DeepForge is developed in the open. Contributions, issues, and discussions are welcome.</p>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href="https://github.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary inline-flex items-center gap-2"
+            >
+              <GitBranch className="w-4 h-4" aria-hidden="true" />
+              View on GitHub
+            </a>
+            <a
+              href="https://github.com/issues"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary inline-flex items-center gap-2"
+            >
+              <ExternalLink className="w-4 h-4" aria-hidden="true" />
+              Report an issue
+            </a>
+            <a
+              href="https://github.com/discussions"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary inline-flex items-center gap-2"
+            >
+              <Search className="w-4 h-4" aria-hidden="true" />
+              Discussions
+            </a>
+          </div>
+        </div>
       </GlassCard>
 
       <p className="pt-2 text-center text-sm text-text-muted">

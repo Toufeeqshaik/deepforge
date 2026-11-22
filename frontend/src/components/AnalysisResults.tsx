@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import VerdictBadge from "./VerdictBadge";
 import GlassCard from "./GlassCard";
+import EvidenceCard from "./EvidenceCard";
 import type { AnalysisReport } from "../lib/api";
 import {
   formatBytes,
@@ -26,6 +27,9 @@ import {
   ChevronDown,
   HelpCircle,
   Info,
+  FileSignature,
+  Image as ImageIconLucide,
+  Brain,
 } from "lucide-react";
 import {
   LineChart,
@@ -207,9 +211,9 @@ function ScoreGauge({ score, className = "" }: ScoreGaugeProps) {
   }
   
   return (
-    <div className={`relative ${className}`} role="img" aria-label={`Combined score: ${isIndeterminate ? "unavailable" : `${percentage}%`}`}>
+    <div className={`relative ${className}`} role="img" aria-label={`Detector score: ${isIndeterminate ? "unavailable" : `${percentage}%`}`}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium text-text-primary">Combined Score</span>
+        <span className="text-sm font-medium text-text-primary">Detector Score</span>
         <span className="font-mono text-lg text-text-primary">
           {isIndeterminate ? "—" : `${percentage}%`}
         </span>
@@ -271,6 +275,11 @@ function ScoreGauge({ score, className = "" }: ScoreGaugeProps) {
         <span>{'35\u201365%'}</span>
         <span>{'\u003E 65%'}</span>
       </div>
+
+      <p className="mt-3 text-[10px] leading-relaxed text-text-muted">
+        Single-number orientation only. Independent detector signals are reported separately
+        below — this score is not proof of authenticity, and missing signals are not proof either.
+      </p>
     </div>
   );
 }
@@ -310,7 +319,10 @@ function VerdictCard({ verdict, score, analysisType, className = "" }: VerdictCa
           </p>
           {score !== null && (
             <p className="mt-3 text-sm font-mono text-text-primary">
-              Combined fake probability: {(score * 100).toFixed(1)}%
+              Detector fake probability: {(score * 100).toFixed(1)}%
+              <span className="ml-2 font-sans text-[11px] font-normal text-text-muted">
+                (orientation only — read the independent signals)
+              </span>
             </p>
           )}
         </div>
@@ -1058,6 +1070,140 @@ function EmptyState({ analysisType, onAnalyze, disabled = false, className = "" 
 }
 
 /* ============================================================================
+   Evidence extraction helpers
+   ========================================================================== */
+function extractC2PAData(report: AnalysisReport): unknown {
+  for (const detector of report.detector_results) {
+    const details = detector.details as Record<string, unknown> | undefined;
+    if (details?.c2pa || details?.manifest || details?.trust_markers) {
+      return details.c2pa ?? details.manifest ?? details.trust_markers ?? true;
+    }
+    if (detector.detector_name.toLowerCase().includes("c2pa")) {
+      return { status: detector.verdict, confidence: detector.calibrated_confidence };
+    }
+  }
+  return null;
+}
+
+function extractC2PADetails(report: AnalysisReport): Record<string, unknown> | undefined {
+  for (const detector of report.detector_results) {
+    const details = detector.details as Record<string, unknown> | undefined;
+    if (details?.c2pa || details?.manifest || details?.trust_markers) {
+      const result: Record<string, unknown> = {};
+      if (details.manifest) result.manifest = details.manifest;
+      if (details.trust_markers) result.trust_markers = details.trust_markers;
+      if (details.ingredients) result.ingredients = details.ingredients;
+      if (details.claim_generator) result.claim_generator = details.claim_generator;
+      if (details.signature) result.signature = "present";
+      return Object.keys(result).length > 0 ? result : undefined;
+    }
+  }
+  return undefined;
+}
+
+function extractWatermarkData(report: AnalysisReport): unknown {
+  for (const detector of report.detector_results) {
+    const details = detector.details as Record<string, unknown> | undefined;
+    if (details?.watermark || details?.synthid || details?.payload) {
+      return details.watermark ?? details.synthid ?? details.payload ?? true;
+    }
+    if (detector.detector_name.toLowerCase().includes("watermark")) {
+      return { status: detector.verdict, confidence: detector.calibrated_confidence };
+    }
+  }
+  return null;
+}
+
+function extractWatermarkDetails(report: AnalysisReport): Record<string, unknown> | undefined {
+  for (const detector of report.detector_results) {
+    const details = detector.details as Record<string, unknown> | undefined;
+    if (details?.watermark || details?.synthid || details?.payload) {
+      const result: Record<string, unknown> = {};
+      if (details.payload) result.payload = details.payload;
+      if (details.type) result.type = details.type;
+      if (details.confidence) result.confidence = details.confidence;
+      return Object.keys(result).length > 0 ? result : undefined;
+    }
+  }
+  return undefined;
+}
+
+function extractMetadataData(report: AnalysisReport): unknown {
+  const metadata = report.metadata as Record<string, unknown> | undefined;
+  if (metadata && Object.keys(metadata).length > 0) {
+    return metadata;
+  }
+  for (const detector of report.detector_results) {
+    const details = detector.details as Record<string, unknown> | undefined;
+    if (details?.exif || details?.xmp || details?.metadata) {
+      return details.exif ?? details.xmp ?? details.metadata ?? true;
+    }
+  }
+  return null;
+}
+
+function extractMetadataDetails(report: AnalysisReport): Record<string, unknown> | undefined {
+  const metadata = report.metadata as Record<string, unknown> | undefined;
+  if (metadata && Object.keys(metadata).length > 0) {
+    const filtered: Record<string, unknown> = {};
+    const interestingKeys = ["make", "model", "software", "datetime", "gps", "exif", "xmp", "icc_profile", "color_space", "orientation", "width", "height", "duration", "bitrate", "codec", "sample_rate", "channels"];
+    for (const key of interestingKeys) {
+      if (metadata[key] !== undefined) filtered[key] = metadata[key];
+    }
+    return Object.keys(filtered).length > 0 ? filtered : metadata;
+  }
+  for (const detector of report.detector_results) {
+    const details = detector.details as Record<string, unknown> | undefined;
+    if (details?.exif || details?.xmp || details?.metadata) {
+      const meta = details.exif ?? details.xmp ?? details.metadata;
+      return meta as Record<string, unknown> | undefined;
+    }
+  }
+  return undefined;
+}
+
+function extractForensicData(report: AnalysisReport): unknown {
+  const detector = report.detector_results[0];
+  if (!detector) return null;
+  return {
+    verdict: detector.verdict,
+    raw_score: detector.raw_score,
+    calibrated_confidence: detector.calibrated_confidence,
+    processing_time_ms: detector.processing_time_ms,
+  };
+}
+
+function extractForensicDetails(
+  report: AnalysisReport,
+  perModelResults: Array<{ name: string; prediction: string; confidence: number; processingTimeMs: number }>,
+  combinedScore: number | null
+): Record<string, unknown> {
+  const details: Record<string, unknown> = {};
+  details.combined_score = combinedScore;
+  details.models_run = report.detector_results.length;
+  details.total_processing_time_ms = report.processing_time_ms;
+  
+  if (perModelResults.length > 0) {
+    details.per_model = perModelResults.map((m) => ({
+      name: m.name,
+      prediction: m.prediction,
+      confidence: m.confidence,
+      processing_time_ms: m.processingTimeMs,
+    }));
+  }
+  
+  const firstDetector = report.detector_results[0];
+  if (firstDetector) {
+    const d = firstDetector.details as Record<string, unknown> | undefined;
+    if (d?.heatmap_available) details.heatmap_available = d.heatmap_available;
+    if (d?.combined_score) details.combined_score = d.combined_score;
+    if (d?.thresholds) details.thresholds = d.thresholds;
+  }
+  
+  return details;
+}
+
+/* ============================================================================
    Main AnalysisResults Component
    ========================================================================== */
 interface AnalysisResultsProps {
@@ -1065,6 +1211,7 @@ interface AnalysisResultsProps {
   analysisType: AnalysisType;
   phase: "idle" | "analyzing" | "done" | "error";
   error: string | null;
+  imageUrl?: string;
   videoUrl?: string;
   audioUrl?: string;
   onRetry?: () => void;
@@ -1186,7 +1333,7 @@ export default function AnalysisResults({
           transition={{ duration: 0.25, ease: "easeOut" }}
           className="space-y-6"
         >
-          {/* Simple Mode */}
+          {/* Simple Mode - Enhanced Detect Experience */}
           {mode === "simple" && (
             <>
               {/* Verdict Card + Score Gauge */}
@@ -1202,12 +1349,55 @@ export default function AnalysisResults({
                   />
                 </GlassCard>
               </div>
-              
+
+              {/* Evidence Cards - Detect Experience */}
+              <div className="space-y-4 stagger-children">
+                {/* C2PA / Signed Provenance */}
+                <EvidenceCard
+                  type="c2pa"
+                  title="Signed Provenance (C2PA)"
+                  icon={<FileSignature className="w-5 h-5" aria-hidden="true" />}
+                  data={extractC2PAData(report)}
+                  description="Cryptographic manifest proving content origin and edit history. Absence does not prove manipulation."
+                  details={extractC2PADetails(report)}
+                />
+
+                {/* Watermarks */}
+                <EvidenceCard
+                  type="watermark"
+                  title="Supported Watermarks"
+                  icon={<Shield className="w-5 h-5" aria-hidden="true" />}
+                  data={extractWatermarkData(report)}
+                  description="Invisible watermarks embedded by AI generators (SynthID, DALL-E, etc.). Detected watermarks strongly indicate AI origin."
+                  details={extractWatermarkDetails(report)}
+                />
+
+                {/* File Metadata */}
+                <EvidenceCard
+                  type="metadata"
+                  title="File Metadata"
+                  icon={<ImageIconLucide className="w-5 h-5" aria-hidden="true" />}
+                  data={extractMetadataData(report)}
+                  description="EXIF, XMP, and container metadata revealing creation tool, timestamps, and processing history."
+                  details={extractMetadataDetails(report)}
+                />
+
+                {/* Forensic ML Estimate */}
+                <EvidenceCard
+                  type="forensic"
+                  title="Forensic ML Estimate"
+                  icon={<Brain className="w-5 h-5" aria-hidden="true" />}
+                  data={extractForensicData(report)}
+                  description="Statistical analysis of pixel/frame/audio patterns using trained detectors. Probabilistic, not deterministic."
+                  details={extractForensicDetails(report, perModelResults, combinedScore)}
+                />
+              </div>
+
               {/* Per-Model Breakdown */}
               {perModelResults.length > 0 && (
                 <PerModelBreakdown models={perModelResults} />
               )}
-              
+
               {/* Heatmap (image only) */}
               {analysisType === "image" && (
                 <Heatmap
@@ -1215,7 +1405,7 @@ export default function AnalysisResults({
                   available={heatmapAvailable}
                 />
               )}
-              
+
               {/* Video-specific: frame chart + player + audio score */}
               {analysisType === "video" && videoUrl && (
                 <>
@@ -1227,7 +1417,7 @@ export default function AnalysisResults({
                   />
                 </>
               )}
-              
+
               {/* Audio-specific: waveform player + score */}
               {analysisType === "audio" && audioUrl && (
                 <AudioPlayerWithWaveform
@@ -1235,7 +1425,7 @@ export default function AnalysisResults({
                   report={report}
                 />
               )}
-              
+
               {/* What this means + Limitations */}
               <GlassCard className="p-5 sm:p-6">
                 <h3 className="text-base font-semibold text-text-primary">What this means</h3>
@@ -1256,8 +1446,9 @@ export default function AnalysisResults({
                     <>
                       <p>
                         DeepForge ran {report.detector_results.length} independent detector
-                        {report.detector_results.length === 1 ? "" : "s"} and combined their evidence
-                        into the verdict above.
+                        {report.detector_results.length === 1 ? "" : "s"} and reports each signal
+                        separately. The overall verdict reflects the published decision thresholds —
+                        it is not a substitute for reviewing the individual detector evidence.
                       </p>
                       <p>
                         This is a <strong className="text-text-primary">probabilistic indicator</strong>{" "}
@@ -1269,7 +1460,7 @@ export default function AnalysisResults({
                   )}
                 </div>
               </GlassCard>
-              
+
               <GlassCard className="p-5 sm:p-6">
                 <h3 className="text-base font-semibold text-text-primary">Limitations</h3>
                 <div className="mt-3">

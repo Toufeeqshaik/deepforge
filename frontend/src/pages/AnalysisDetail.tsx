@@ -4,6 +4,15 @@ import AnalysisResults from "../components/AnalysisResults";
 import GlassCard from "../components/GlassCard";
 import { getAnalysis, apiErrorMessage } from "../lib/api";
 import type { AnalysisReport } from "../lib/api";
+import { formatBytes, formatTimestamp } from "../lib/format";
+import { FileIcon, VideoIcon, MusicIcon, ChevronLeft, Copy, Download } from "lucide-react";
+
+function getFileIcon(type: string) {
+  if (type.startsWith("image/")) return <FileIcon className="w-4 h-4" aria-hidden="true" />;
+  if (type.startsWith("video/")) return <VideoIcon className="w-4 h-4" aria-hidden="true" />;
+  if (type.startsWith("audio/")) return <MusicIcon className="w-4 h-4" aria-hidden="true" />;
+  return <FileIcon className="w-4 h-4" aria-hidden="true" />;
+}
 
 export default function AnalysisDetail() {
   const { id } = useParams<{ id: string }>();
@@ -30,34 +39,89 @@ export default function AnalysisDetail() {
       <div className="flex items-center justify-between pt-2">
         <Link
           to="/history"
-          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-2 focus-visible:outline-accent-cyan"
+          className="btn-ghost"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <line x1="19" y1="12" x2="5" y2="12" />
-            <polyline points="12 19 5 12 12 5" />
-          </svg>
+          <ChevronLeft className="w-4 h-4 mr-1" aria-hidden="true" />
           Back to history
         </Link>
-        {id && <span className="font-mono text-xs text-text-muted">{id}</span>}
+        {id && (
+          <div className="flex items-center gap-2">
+            <span className="font-mono-tabular-xs text-text-muted">{id}</span>
+            <button
+              type="button"
+              onClick={() => navigator.clipboard.writeText(id)}
+              className="btn-ghost p-1.5"
+              title="Copy analysis ID"
+            >
+              <Copy className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
+        )}
       </div>
 
-      <h1 className="sr-only">Analysis report for {report?.file_name ?? "analysis " + (id ?? "")}</h1>
-
       {error && (
-        <GlassCard role="alert" className="border-verdict-manipulated/30 p-6">
+        <GlassCard role="alert" className="border-verdict-manipulated/30 p-6 stagger-children">
           <h2 className="text-base font-semibold text-verdict-manipulated">Report unavailable</h2>
           <p className="mt-1 text-sm text-text-secondary">{error}</p>
+          <Link to="/history" className="mt-4 btn-secondary inline-flex">
+            <ChevronLeft className="w-4 h-4 mr-1" aria-hidden="true" />
+            Back to history
+          </Link>
         </GlassCard>
       )}
 
       {report && (
-        <AnalysisResults
-          report={report}
-          analysisType={report.analysis_type as "image" | "video" | "audio"}
-          phase="done"
-          error={error}
-          onNewAnalysis={() => {}}
-        />
+        <>
+          {/* Report header */}
+          <GlassCard className="p-5 sm:p-6 stagger-children">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="shrink-0 p-2.5 rounded-xl bg-white/5 border border-white/10">
+                  {getFileIcon(report.file_type)}
+                </div>
+                <div>
+                  <h1 className="text-lg font-semibold text-text-primary truncate">
+                    {report.file_name}
+                  </h1>
+                  <p className="text-xs text-text-muted flex items-center gap-2">
+                    <span className="font-mono-tabular-xs">{formatBytes(report.file_size_bytes)}</span>
+                    <span>·</span>
+                    <span className="status-pill status-pill-verified font-mono-tabular-xs">
+                      {report.analysis_type.toUpperCase()}
+                    </span>
+                    <span>·</span>
+                    <span>{formatTimestamp(report.created_at)}</span>
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  title="Download report"
+                >
+                  <Download className="w-4 h-4 mr-1" aria-hidden="true" />
+                  Export
+                </button>
+                <Link
+                  to={`/analyze`}
+                  className="btn-primary"
+                >
+                  New Analysis
+                </Link>
+              </div>
+            </div>
+          </GlassCard>
+
+          {/* Analysis results */}
+          <AnalysisResults
+            report={report}
+            analysisType={report.analysis_type as "image" | "video" | "audio"}
+            phase="done"
+            error={error}
+            onNewAnalysis={() => {}}
+          />
+        </>
       )}
     </div>
   );

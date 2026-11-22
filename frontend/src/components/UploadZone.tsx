@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Check, X } from "lucide-react";
 import { formatBytes } from "../lib/format";
+import { getFileHash } from "../lib/hash";
+import { CopyableReadout } from "./motion";
 
 type ValidationReason = "unsupported-type" | "too-large" | null;
 
@@ -11,7 +14,6 @@ function validateFile(
 ): ValidationReason {
   const lowerName = file.name.toLowerCase();
   const hasKnownExtension = acceptedExtensions.some((ext) => lowerName.endsWith(ext));
-  // Trust declared MIME type when the extension is missing/odd, otherwise require known ext.
   const looksLikeMedia =
     hasKnownExtension ||
     file.type.startsWith("image/") ||
@@ -20,7 +22,8 @@ function validateFile(
     file.type === "";
   if (
     !looksLikeMedia ||
-    (!hasKnownExtension && file.type !== "" &&
+    (!hasKnownExtension &&
+      file.type !== "" &&
       !file.type.startsWith("image/") &&
       !file.type.startsWith("video/") &&
       !file.type.startsWith("audio/"))
@@ -32,13 +35,13 @@ function validateFile(
 }
 
 interface UploadZoneProps {
-  /** Called with the selected file, or null when the selection is cleared. */
   onFileChange: (file: File | null) => void;
-  /** Currently selected file (controlled, so the parent owns the flow). */
   file: File | null;
   disabled?: boolean;
-  accept?: string; // e.g. ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+  accept?: string;
   maxSizeMB?: number;
+  /** Show SHA-256 fingerprint and integrity badge */
+  showFingerprint?: boolean;
 }
 
 const ERRORS: Record<Exclude<ValidationReason, null>, string> = {
@@ -46,22 +49,42 @@ const ERRORS: Record<Exclude<ValidationReason, null>, string> = {
   "too-large": "File is too large for this workspace.",
 };
 
+const ACCEPT_LABELS: Record<string, string> = {
+  "image/jpeg": "JPEG",
+  "image/png": "PNG",
+  "image/webp": "WebP",
+  "video/mp4": "MP4",
+  "video/webm": "WebM",
+  "audio/wav": "WAV",
+  "audio/mp3": "MP3",
+  "audio/ogg": "OGG",
+  "audio/webm": "WebM",
+};
+
+function getFileTypeLabel(file: File): string {
+  if (ACCEPT_LABELS[file.type]) return ACCEPT_LABELS[file.type];
+  const ext = file.name.split(".").pop()?.toUpperCase();
+  return ext || file.type || "FILE";
+}
+
 export default function UploadZone({
   onFileChange,
   file,
   disabled = false,
-  accept = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp",
-  maxSizeMB = 50,
+  accept = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp,.mp4,.webm,video/mp4,video/webm,.wav,.mp3,.ogg,.webm,audio/wav,audio/mp3,audio/ogg,audio/webm",
+  maxSizeMB = 100,
+  showFingerprint = true,
 }: UploadZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<ValidationReason>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [fingerprint, setFingerprint] = useState<string | null>(null);
+  const [hashing, setHashing] = useState(false);
 
   const acceptedExtensions = acceptedExtensionsFromAccept(accept);
   const maxSizeBytes = maxSizeMB * 1024 * 1024;
 
-  // Keep an object URL for the thumbnail and revoke it on change/unmount.
   useEffect(() => {
     if (!file || !file.type.startsWith("image/")) {
       setPreviewUrl(null);
@@ -71,6 +94,26 @@ export default function UploadZone({
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+
+  // Compute SHA-256 fingerprint
+  useEffect(() => {
+    if (!file || !showFingerprint) {
+      setFingerprint(null);
+      return;
+    }
+    let cancelled = false;
+    setHashing(true);
+    getFileHash(file)
+      .then((hash) => {
+        if (!cancelled) setFingerprint(hash);
+      })
+      .finally(() => {
+        if (!cancelled) setHashing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [file, showFingerprint]);
 
   const acceptFile = useCallback(
     (candidate: File) => {
@@ -100,29 +143,32 @@ export default function UploadZone({
 
   const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    setIsDragging(false);
+    if (!disabled) setIsDragging(false);
   };
 
   const clearFile = () => {
     setError(null);
+    setFingerprint(null);
     onFileChange(null);
   };
 
-  const isMedia = file ? file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/") : false;
+  const isMedia = file
+    ? file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/")
+    : false;
   const isImage = file ? file.type.startsWith("image/") : false;
 
   return (
-    <div>
+    <div className="space-y-3">
       <input
         ref={inputRef}
         type="file"
         accept={accept}
-        className="sr-only"
+        className="input-file"
         aria-label={isImage ? "Choose an image file to analyze" : "Choose a media file to analyze"}
         onChange={(e) => {
           const selected = e.target.files?.[0];
           if (selected) acceptFile(selected);
-          e.target.value = ""; // allow re-selecting the same file
+          e.target.value = "";
         }}
       />
 
@@ -145,11 +191,14 @@ export default function UploadZone({
         animate={{
           scale: isDragging ? 1.01 : 1,
           borderColor: isDragging ? "rgba(34,211,238,0.6)" : "rgba(255,255,255,0.1)",
+          backgroundColor: isDragging ? "rgba(34,211,238,0.04)" : "transparent",
         }}
         transition={{ duration: 0.2, ease: "easeOut" }}
-        className={`glass-subtle relative flex cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border border-dashed px-6 py-10 text-center transition-colors sm:py-14 ${
-          isDragging ? "bg-accent-cyan/5" : ""
-        } ${disabled ? "cursor-not-allowed opacity-60" : "hover:border-white/20"}`}
+        className={`
+          glass-subtle relative flex cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border border-dashed px-6 py-10 text-center transition-colors sm:py-14
+          ${isDragging ? "bg-accent-cyan/5 border-accent-cyan/30" : ""}
+          ${disabled ? "cursor-not-allowed opacity-60" : "hover:border-white/20 hover:bg-white/5"}
+        `}
         style={{ borderStyle: "dashed" }}
       >
         <AnimatePresence mode="wait">
@@ -160,28 +209,65 @@ export default function UploadZone({
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.92 }}
               transition={{ duration: 0.25, ease: "easeOut" }}
-              className="flex flex-col items-center gap-4"
+              className="flex flex-col items-center gap-4 w-full"
             >
-              <div className="border-accent-gradient relative h-32 w-32 overflow-hidden rounded-xl sm:h-40 sm:w-40">
+              <div className="border-accent-gradient relative h-32 w-32 overflow-hidden rounded-xl sm:h-40 sm:w-40 flex-shrink-0">
                 {isImage && previewUrl ? (
-                  <img
-                    src={previewUrl}
-                    alt={`Preview of ${file.name}`}
-                    className="h-full w-full rounded-xl object-cover"
-                  />
+                  <img src={previewUrl} alt={`Preview of ${file.name}`} className="h-full w-full rounded-xl object-cover" />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center rounded-xl bg-white/5 text-3xl" aria-hidden="true">
                     {isImage ? "🖼️" : isMedia ? "🎬" : "📄"}
                   </div>
                 )}
-                <span className="absolute left-2 top-2 rounded bg-black/50 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-widest text-white/80">
-                  preview
-                </span>
+                <span className="absolute left-2 top-2 rounded bg-black/50 px-1.5 py-0.5 font-mono-tabular-xs text-white/80 uppercase tracking-widest">preview</span>
               </div>
-              <div className="max-w-sm">
+
+              <div className="max-w-sm text-center w-full">
                 <p className="truncate text-sm font-medium text-text-primary">{file.name}</p>
-                <p className="mt-0.5 font-mono text-xs text-text-muted">{formatBytes(file.size)}</p>
+                <div className="mt-1.5 flex items-center justify-center gap-3 flex-wrap">
+                  <span className="font-mono-tabular-xs text-text-muted">{formatBytes(file.size)}</span>
+                  <span className="status-pill status-pill-verified">
+                    <Check className="w-3 h-3" aria-hidden="true" />
+                    {getFileTypeLabel(file)}
+                  </span>
+                  <span className="status-pill status-pill-verified font-mono-tabular-xs">
+                    Input bytes unmodified
+                  </span>
+                </div>
               </div>
+
+              {showFingerprint && (hashing || fingerprint) && (
+                <div className="w-full max-w-xs space-y-1.5">
+                  {fingerprint ? (
+                    <div className="flex justify-center">
+                      <CopyableReadout
+                        value={fingerprint}
+                        label="SHA-256"
+                        type="hash"
+                        truncated
+                        truncateLength={10}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-center font-mono text-[10px] text-text-muted">
+                      Computing SHA-256…
+                    </p>
+                  )}
+                  <div className="h-0.5 w-full overflow-hidden rounded-full bg-white/10">
+                    <motion.div
+                      className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-400"
+                      initial={false}
+                      animate={{ width: hashing ? "45%" : "100%" }}
+                      transition={{ duration: 0.4, ease: "easeOut" }}
+                      aria-hidden="true"
+                    />
+                  </div>
+                  <p className="text-center font-mono text-[9px] uppercase tracking-wider text-text-muted">
+                    {hashing ? "Computing fingerprint" : "Input bytes unmodified"}
+                  </p>
+                </div>
+              )}
+
               <button
                 type="button"
                 disabled={disabled}
@@ -223,8 +309,8 @@ export default function UploadZone({
                   or <span className="text-accent-cyan underline underline-offset-2">click to browse</span>
                 </p>
               </div>
-              <p className="font-mono text-xs text-text-muted">
-                {acceptedExtensions.join(" · ")} — max {maxSizeMB} MB
+              <p className="font-mono-tabular-xs text-text-muted">
+                {acceptedExtensions.map((e) => `.${e}`).join(" · ")} — max {maxSizeMB} MB
               </p>
             </motion.div>
           )}
@@ -238,8 +324,9 @@ export default function UploadZone({
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="mt-3 text-sm text-verdict-manipulated"
+            className="mt-3 text-sm text-verdict-manipulated flex items-center gap-1.5"
           >
+            <X className="w-4 h-4 shrink-0" aria-hidden="true" />
             {ERRORS[error]}
           </motion.p>
         )}
