@@ -170,7 +170,7 @@ function NavItemLink({
       end={item.to === "/"}
       onClick={onNavigate}
       className={({ isActive }) =>
-        `nav-link relative whitespace-nowrap ${isActive ? "nav-link-active" : ""}`
+        `nav-link relative shrink-0 whitespace-nowrap px-2.5 ${isActive ? "nav-link-active" : ""}`
       }
     >
       {({ isActive }) => (
@@ -335,7 +335,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
             {/* Desktop navigation */}
             <nav
-              className="hidden min-w-0 items-center gap-0.5 lg:flex"
+              className="hidden shrink-0 items-center gap-2 lg:flex"
               aria-label="Main navigation"
             >
               {NAV_ITEMS.map((item) => (

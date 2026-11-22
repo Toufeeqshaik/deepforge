@@ -191,7 +191,7 @@ function CapabilityCard({ capability }: { capability: Capability }) {
 
   return (
     <article
-      className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-[rgba(10,13,20,0.72)] p-5 backdrop-blur-md transition-all duration-300 hover:-translate-y-1 ${a.border} ${a.hoverBorder}`}
+      className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-[rgba(8,10,16,0.78)] p-5 backdrop-blur-md transition-all duration-300 hover:-translate-y-1 ${a.border} ${a.hoverBorder}`}
     >
       <span
         aria-hidden="true"
@@ -273,7 +273,7 @@ function PipelineRow({ pipeline }: { pipeline: (typeof PIPELINES)[number] }) {
 
 function PipelineStatusCard() {
   return (
-    <aside className="glass-strong relative overflow-hidden rounded-2xl p-5">
+    <aside className="relative overflow-hidden rounded-2xl border border-white/[0.09] bg-[rgba(8,10,16,0.78)] p-5 backdrop-blur-md">
       <span
         aria-hidden="true"
         className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent"
@@ -351,7 +351,7 @@ function TelemetryStrip() {
   ];
 
   return (
-    <div className="grid grid-cols-2 divide-white/[0.06] overflow-hidden rounded-xl border border-white/[0.07] bg-[rgba(10,13,20,0.55)] backdrop-blur-md md:grid-cols-4 md:divide-x">
+    <div className="grid grid-cols-2 divide-white/[0.06] overflow-hidden rounded-xl border border-white/[0.07] bg-[rgba(8,10,16,0.78)] backdrop-blur-md md:grid-cols-4 md:divide-x">
       {items.map((item) => (
         <div key={item.label} className="px-4 py-3">
           <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-text-muted">
@@ -383,7 +383,7 @@ export default function Home() {
         {/* ── Hero ───────────────────────────────────────────────────── */}
         <section aria-labelledby="hero-heading" className="stagger-children">
           <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] lg:gap-12">
-            <div>
+            <div className="rounded-2xl border border-white/[0.07] bg-[rgba(8,10,16,0.78)] p-5 backdrop-blur-md sm:p-6">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-cyan-300/80">
                   <ScrambleText trigger="mount" duration={520}>
