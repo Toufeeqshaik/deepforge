@@ -3,50 +3,19 @@ import { AnimatePresence, motion } from "framer-motion";
 import UploadZone from "../components/UploadZone";
 import AnalysisResults from "../components/AnalysisResults";
 import GlassCard from "../components/GlassCard";
+import { PipelineStepper } from "../components/PipelineStepper";
 import { analyzeImage, apiErrorMessage } from "../lib/api";
 import type { AnalysisReport } from "../lib/api";
 import { X, RotateCcw, Info, Zap, AlertTriangle } from "lucide-react";
 
-const STAGES = ["Validating image", "Preprocessing", "Running detectors", "Compiling report"] as const;
+const STAGES = [
+  { label: "Validating image", detail: "Integrity check & format verification" },
+  { label: "Preprocessing", detail: "Color space normalization & alignment" },
+  { label: "Running detectors", detail: "ELA · Noise · C2PA · Metadata · JPEG Ghosts · FFT" },
+  { label: "Compiling report", detail: "Aggregating independent signals" },
+] as const;
 
 type Phase = "idle" | "analyzing" | "done" | "error";
-
-function ProgressStages({ stageIndex }: { stageIndex: number }) {
-  return (
-    <ol className="space-y-3" aria-live="polite" role="list">
-      {STAGES.map((stage, i) => {
-        const active = i === stageIndex;
-        const done = i < stageIndex;
-        return (
-          <li key={stage} className="flex items-center gap-3">
-            <motion.span
-              animate={{
-                backgroundColor: done || active ? "rgba(34,211,238,0.15)" : "rgba(255,255,255,0.05)",
-                borderColor: done || active ? "rgba(34,211,238,0.4)" : "rgba(255,255,255,0.1)",
-              }}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all duration-300"
-            >
-              {done ? (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-accent-cyan" aria-hidden="true">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : active ? (
-                <span className="bg-accent-cyan block h-2.5 w-2.5 rounded-full animate-pulse" aria-hidden="true" />
-              ) : (
-                <span className="block h-2.5 w-2.5 rounded-full bg-current opacity-30" aria-hidden="true" />
-              )}
-            </motion.span>
-            <span className={`text-sm font-medium transition-colors ${
-              active ? "text-text-primary" : done ? "text-text-secondary" : "text-text-muted"
-            }`}>
-              {stage}
-            </span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
 
 export default function AnalyzePage() {
   const [file, setFile] = useState<File | null>(null);
@@ -197,7 +166,11 @@ export default function AnalyzePage() {
                   </div>
                 </div>
                 <div className="mt-6 border-t border-white/5 pt-6">
-                  <ProgressStages stageIndex={stageIndex} />
+                  <PipelineStepper
+                    stages={STAGES}
+                    currentStage={stageIndex}
+                    ariaLabel="Image analysis pipeline progress"
+                  />
                 </div>
               </GlassCard>
             </motion.div>
@@ -323,5 +296,3 @@ export default function AnalyzePage() {
     </div>
   );
 }
-
-// Import AlertTriangle for error state

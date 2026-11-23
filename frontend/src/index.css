@@ -93,12 +93,12 @@
   --color-verdict-error: #ef4444;
 
   /* === GLASS SURFACE TOKENS === */
-  --color-glass-border: rgba(148, 163, 184, 0.16);
-  --color-glass-border-strong: rgba(148, 163, 184, 0.24);
-  --glass-bg: rgba(11, 15, 25, 0.40);
-  --glass-bg-strong: rgba(11, 15, 25, 0.64);
-  --glass-blur: blur(18px) saturate(140%);
-  --glass-blur-strong: blur(24px) saturate(140%);
+  --color-glass-border: rgba(148, 163, 184, 0.18);
+  --color-glass-border-strong: rgba(148, 163, 184, 0.28);
+  --glass-bg: rgba(10, 14, 24, 0.44);
+  --glass-bg-strong: rgba(10, 14, 24, 0.68);
+  --glass-blur: blur(20px) saturate(140%);
+  --glass-blur-strong: blur(28px) saturate(140%);
 
   /* === SPACING / RADIUS === */
   --space-xs: 0.25rem;
@@ -203,23 +203,54 @@
     background: var(--glass-bg);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    box-shadow: inset 0 1px 0 0 rgba(226, 232, 240, 0.14), 0 16px 40px -12px rgba(0, 0, 0, 0.65);
+    border: 1px solid var(--color-glass-border);
+    box-shadow: inset 0 1px 0 0 rgba(226, 232, 240, 0.16), inset 0 -1px 0 0 rgba(148, 163, 184, 0.06), 0 16px 40px -12px rgba(0, 0, 0, 0.65);
+    /* Top specular highlight for glass readability over bright ribbon folds */
+    position: relative;
+  }
+  .glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(226, 232, 240, 0.08) 0%, transparent 12%);
+    opacity: 0.9;
   }
 
   .glass-subtle {
-    background: rgba(15, 21, 34, 0.34);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(148, 163, 184, 0.14);
+    background: rgba(10, 14, 24, 0.38);
+    backdrop-filter: blur(14px) saturate(130%);
+    -webkit-backdrop-filter: blur(14px) saturate(130%);
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    position: relative;
+  }
+  .glass-subtle::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(226, 232, 240, 0.06) 0%, transparent 10%);
+    opacity: 0.8;
   }
 
   .glass-strong {
     background: var(--glass-bg-strong);
     backdrop-filter: var(--glass-blur-strong);
     -webkit-backdrop-filter: var(--glass-blur-strong);
-    border: 1px solid rgba(148, 163, 184, 0.20);
-    box-shadow: inset 0 1px 0 0 rgba(226, 232, 240, 0.14), 0 16px 40px -12px rgba(0, 0, 0, 0.65);
+    border: 1px solid var(--color-glass-border-strong);
+    box-shadow: inset 0 1px 0 0 rgba(226, 232, 240, 0.18), inset 0 -1px 0 0 rgba(148, 163, 184, 0.08), 0 16px 40px -12px rgba(0, 0, 0, 0.7);
+    position: relative;
+  }
+  .glass-strong::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(226, 232, 240, 0.10) 0%, transparent 14%);
+    opacity: 1;
   }
 
   .panel {
@@ -437,8 +468,10 @@
     gap: 0.25rem;
     border-radius: 0.625rem;
     padding: 0.25rem;
-    background: rgba(148, 163, 184, 0.06);
+    background: rgba(10, 14, 24, 0.5);
     border: 1px solid var(--color-glass-border);
+    backdrop-filter: blur(8px) saturate(130%);
+    -webkit-backdrop-filter: blur(8px) saturate(130%);
   }
 
   .segmented-btn {
@@ -457,13 +490,30 @@
   }
   .segmented-btn:hover {
     color: var(--color-fg-0);
+    background: rgba(148, 163, 184, 0.08);
   }
 
   .segmented-btn-active {
-    color: var(--color-accent);
-    background: rgba(56, 189, 248, 0.12);
-    border-color: rgba(56, 189, 248, 0.30);
-    box-shadow: 0 0 16px rgba(56, 189, 248, 0.18);
+    color: var(--color-fg-0);
+    background: rgba(10, 14, 24, 0.6);
+    border-color: var(--color-glass-border-strong);
+    box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.12), 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+
+  /* Detect mode active override */
+  .segmented-btn[data-mode="detect"].segmented-btn-active,
+  .segmented-control:has(.segmented-btn[data-mode="detect"].segmented-btn-active) .segmented-btn[data-mode="detect"].segmented-btn-active {
+    color: #34d399;
+    border-color: rgba(34, 197, 94, 0.4);
+    box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.18), 0 2px 8px rgba(34, 197, 94, 0.15);
+  }
+
+  /* Shield mode active override */
+  .segmented-btn[data-mode="shield"].segmented-btn-active,
+  .segmented-control:has(.segmented-btn[data-mode="shield"].segmented-btn-active) .segmented-btn[data-mode="shield"].segmented-btn-active {
+    color: #c084fc;
+    border-color: rgba(192, 132, 252, 0.4);
+    box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.18), 0 2px 8px rgba(168, 85, 247, 0.15);
   }
 
   /* --- Nav links ------------------------------------------------------- */
@@ -498,28 +548,33 @@
     font-family: var(--font-mono);
     font-size: 10px;
     font-weight: 500;
-    background: rgba(148, 163, 184, 0.05);
+    background: rgba(10, 14, 24, 0.5);
     border: 1px solid var(--color-glass-border);
-    color: var(--color-text-muted);
+    color: var(--color-text-secondary);
     white-space: nowrap;
+    backdrop-filter: blur(8px) saturate(130%);
+    -webkit-backdrop-filter: blur(8px) saturate(130%);
   }
 
   .api-pill-connected {
-    background: rgba(34, 197, 94, 0.10);
-    border-color: rgba(34, 197, 94, 0.22);
+    background: rgba(34, 197, 94, 0.14);
+    border-color: rgba(34, 197, 94, 0.3);
     color: #34d399;
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.15);
   }
 
   .api-pill-connecting {
-    background: rgba(56, 189, 248, 0.10);
-    border-color: rgba(56, 189, 248, 0.22);
+    background: rgba(56, 189, 248, 0.14);
+    border-color: rgba(56, 189, 248, 0.3);
     color: #38bdf8;
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
   }
 
   .api-pill-disconnected {
-    background: rgba(239, 68, 68, 0.10);
-    border-color: rgba(239, 68, 68, 0.22);
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(239, 68, 68, 0.3);
     color: #ef4444;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.15);
   }
 }
 
@@ -593,5 +648,22 @@
       linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
       linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
     background-size: 48px 48px;
+  }
+
+  /* Pipeline status card animations */
+  @keyframes slide-up-fade {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-slide-up-fade {
+    animation: slide-up-fade 0.6s var(--ease-out) both;
+    animation-delay: 300ms;
+  }
+
+  @keyframes float-subtle {
+    0%, 100% { transform: translateY(0) translateX(0); }
+    25% { transform: translateY(-3px) translateX(1px); }
+    50% { transform: translateY(0) translateX(-1px); }
+    75% { transform: translateY(3px) translateX(1px); }
   }
 }

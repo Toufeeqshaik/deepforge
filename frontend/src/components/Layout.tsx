@@ -52,10 +52,9 @@ function ModeToggle({ compact = false }: { compact?: boolean }) {
         type="button"
         onClick={() => setMode("detect")}
         aria-pressed={mode === "detect"}
+        data-mode="detect"
         className={`segmented-btn ${
-          mode === "detect"
-            ? "segmented-btn-active !border-teal-400/30 !bg-teal-400/10 !text-teal-300"
-            : ""
+          mode === "detect" ? "segmented-btn-active" : ""
         } ${compact ? "!px-2.5 !py-1 !text-[11px]" : ""}`}
       >
         <Zap className="h-3.5 w-3.5" aria-hidden="true" />
@@ -65,10 +64,9 @@ function ModeToggle({ compact = false }: { compact?: boolean }) {
         type="button"
         onClick={() => setMode("shield")}
         aria-pressed={mode === "shield"}
+        data-mode="shield"
         className={`segmented-btn ${
-          mode === "shield"
-            ? "!border-violet-400/30 !bg-violet-400/10 !text-violet-300"
-            : ""
+          mode === "shield" ? "segmented-btn-active" : ""
         } ${compact ? "!px-2.5 !py-1 !text-[11px]" : ""}`}
       >
         <Shield className="h-3.5 w-3.5" aria-hidden="true" />
@@ -143,7 +141,7 @@ function APIStatusPill() {
 function MultimodalPill() {
   return (
     <span
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-violet-400/25 bg-violet-400/10 px-2.5 py-1 font-mono text-[9px] font-medium uppercase tracking-wider text-violet-300"
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-violet-400/30 bg-[rgba(168,85,247,0.14)] px-2.5 py-1 font-mono text-[9px] font-medium uppercase tracking-wider text-violet-300 backdrop-blur-sm"
       aria-label="Multimodal analysis enabled"
     >
       <Activity className="h-3 w-3" aria-hidden="true" />

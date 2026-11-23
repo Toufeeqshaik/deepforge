@@ -10,9 +10,14 @@ interface AxonParticleFieldProps {
 }
 
 const OBSIDIAN = 0x050608;
-const SILVER_HIGHLIGHT = 0xf8fafc;
-const CYAN_RIM = 0x38bdf8;
-const VIOLET_RIM = 0xa855f7;
+
+// Electric lime green - the new accent color
+const ELECTRIC_LIME = 0x00ff88;
+
+// Brighter variants for enhanced visibility
+const BRIGHT_SILVER = 0xffffff;
+const BRIGHT_CYAN = 0x00ffff;
+const BRIGHT_VIOLET = 0xd8a0ff;
 
 const RIBBON_VERTEX_SHADER = `
   uniform float uTime;
@@ -67,6 +72,7 @@ const RIBBON_VERTEX_SHADER = `
 
 const RIBBON_FRAGMENT_SHADER = `
   uniform float uTime;
+  uniform float uAutoAnim;
   varying vec3 vNormal;
   varying vec3 vViewDir;
   varying vec3 vWorldPos;
@@ -82,34 +88,37 @@ const RIBBON_FRAGMENT_SHADER = `
 
     vec3 keyLight = normalize(vec3(0.55, 0.85, 0.75));
     vec3 fillLight = normalize(vec3(-0.70, -0.25, 0.45));
-    float diffuse = max(dot(N, keyLight), 0.0) * 0.92
-                  + max(dot(N, fillLight), 0.0) * 0.22;
-    float fresnel = pow(1.0 - abs(dot(N, V)), 2.4);
+    float diffuse = max(dot(N, keyLight), 0.0) * 1.2
+                  + max(dot(N, fillLight), 0.0) * 0.35;
+    float fresnel = pow(1.0 - abs(dot(N, V)), 2.0);
 
     vec3 halfVec = normalize(keyLight + V);
-    float specular = pow(max(dot(N, halfVec), 0.0), 54.0);
+    float specular = pow(max(dot(N, halfVec), 0.0), 48.0);
 
-    vec3 charcoal = vec3(0.012, 0.016, 0.024);
-    vec3 silverMid = vec3(0.42, 0.47, 0.53);
-    vec3 silverBright = vec3(0.972, 0.980, 0.988);
+    vec3 charcoal = vec3(0.02, 0.025, 0.035);
+    vec3 silverMid = vec3(0.55, 0.6, 0.68);
+    vec3 silverBright = vec3(1.0, 1.0, 1.0);
 
-    vec3 color = mix(charcoal, silverMid, smoothstep(0.08, 0.58, diffuse));
-    color = mix(color, silverBright, clamp(smoothstep(0.64, 0.92, diffuse) * 0.95 + specular * 1.15, 0.0, 1.0));
+    vec3 color = mix(charcoal, silverMid, smoothstep(0.05, 0.5, diffuse));
+    color = mix(color, silverBright, clamp(smoothstep(0.55, 0.85, diffuse) * 1.2 + specular * 1.4, 0.0, 1.0));
 
     // Deep sculptural creases stay near obsidian.
     float crease = smoothstep(0.22, 0.95, abs(vFold));
-    color *= 1.0 - crease * 0.86;
+    color *= 1.0 - crease * 0.7;
 
-    // Subtle cyan -> violet edge tint, never a full-screen haze.
-    vec3 rimColor = mix(vec3(0.22, 0.74, 0.97), vec3(0.66, 0.33, 0.97),
-                        smoothstep(0.0, 1.0, vAlong));
-    color += rimColor * fresnel * (0.32 + vMagnetic * 0.45);
+    // Electric lime + cyan -> violet edge tint with FASTER auto-animation glow.
+    vec3 limeColor = vec3(0.0, 1.0, 0.53);
+    vec3 cyanColor = vec3(0.0, 1.0, 1.0);
+    vec3 violetColor = vec3(0.75, 0.4, 1.0);
+    vec3 rimColor = mix(mix(limeColor, cyanColor, smoothstep(0.0, 0.5, vAlong)), violetColor, smoothstep(0.5, 1.0, vAlong));
+    float autoGlow = 1.0 + sin(uTime * 2.0 + vWorldPos.x * 3.0) * 0.2 + uAutoAnim * 0.35;
+    color += rimColor * fresnel * (0.5 + vMagnetic * 0.7) * autoGlow;
 
-    // Slight pulse so the sculpture feels alive without blinking.
-    color *= 0.94 + sin(uTime * 0.8 + vWorldPos.x * 1.4) * 0.04;
+    // FASTER pulse so the sculpture feels alive.
+    color *= 0.9 + sin(uTime * 1.8 + vWorldPos.x * 2.5) * 0.08 + uAutoAnim * 0.12;
 
     float edge = smoothstep(0.0, 0.05, vAcross) * (1.0 - smoothstep(0.95, 1.0, vAcross));
-    float alpha = 0.90 + 0.10 * edge;
+    float alpha = 0.98 + 0.02 * edge;
     gl_FragColor = vec4(color, alpha);
   }
 `;
@@ -120,6 +129,7 @@ const PARTICLE_VERTEX_SHADER = `
   uniform float uPointerInfluence;
   uniform float uPointerSpeed;
   uniform float uAspect;
+  uniform float uAutoAnim;
   attribute vec3 aBasePos;
   attribute vec3 aColor;
   attribute float aSize;
@@ -129,23 +139,26 @@ const PARTICLE_VERTEX_SHADER = `
 
   void main() {
     vec3 pos = aBasePos;
-    pos.x += sin(uTime * 0.24 + aPhase) * 0.025;
-    pos.y += cos(uTime * 0.20 + aPhase * 1.3) * 0.025;
+    // FASTER animation speeds
+    pos.x += sin(uTime * 0.5 + aPhase) * 0.045;
+    pos.y += cos(uTime * 0.4 + aPhase * 1.3) * 0.045;
+    pos.z += sin(uTime * 0.3 + aPhase * 0.8) * 0.03;
 
     vec2 pointerWorld = uPointer * vec2(uAspect, 1.0) * 3.6;
     float d = length(pointerWorld - pos.xy);
-    float magnetic = exp(-d * d / 0.7) * uPointerInfluence;
-    float swirl = magnetic * (0.06 + uPointerSpeed * 0.10);
-    pos.x += (pointerWorld.x - pos.x) * magnetic * 0.16 - (pointerWorld.y - pos.y) * swirl;
-    pos.y += (pointerWorld.y - pos.y) * magnetic * 0.16 + (pointerWorld.x - pos.x) * swirl;
+    float magnetic = exp(-d * d / 0.55) * uPointerInfluence;
+    float swirl = magnetic * (0.1 + uPointerSpeed * 0.15);
+    pos.x += (pointerWorld.x - pos.x) * magnetic * 0.22 - (pointerWorld.y - pos.y) * swirl;
+    pos.y += (pointerWorld.y - pos.y) * magnetic * 0.22 + (pointerWorld.x - pos.x) * swirl;
 
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-    float size = aSize * (6.3 / max(-mvPosition.z, 0.1));
-    gl_PointSize = clamp(size * (1.0 + magnetic * 0.6), 1.0, 2.5);
+    float size = aSize * (8.0 / max(-mvPosition.z, 0.1));
+    gl_PointSize = clamp(size * (1.0 + magnetic * 0.8 + uAutoAnim * 0.3), 1.5, 3.5);
     gl_Position = projectionMatrix * mvPosition;
 
     vColor = aColor;
-    vAlpha = 0.40 + 0.30 * sin(uTime * 1.1 + aPhase * 2.0) + magnetic * 0.35;
+    // FASTER pulse
+    vAlpha = 0.6 + 0.4 * sin(uTime * 2.5 + aPhase * 2.5) + magnetic * 0.5 + uAutoAnim * 0.25;
   }
 `;
 
@@ -155,10 +168,74 @@ const PARTICLE_FRAGMENT_SHADER = `
 
   void main() {
     float dist = length(gl_PointCoord - 0.5);
-    float core = 1.0 - smoothstep(0.08, 0.5, dist);
-    float alpha = vAlpha * pow(core, 1.6);
-    if (alpha < 0.02) discard;
-    gl_FragColor = vec4(mix(vColor, vec3(1.0), 0.3), alpha);
+    float core = 1.0 - smoothstep(0.06, 0.48, dist);
+    float alpha = vAlpha * pow(core, 1.4);
+    if (alpha < 0.015) discard;
+    gl_FragColor = vec4(mix(vColor, vec3(1.0), 0.45), alpha);
+  }
+`;
+
+// Fine pinpoint dust particle shaders — crisp, minimal, drift along ribbon edges
+const DUST_VERTEX_SHADER = `
+  uniform float uTime;
+  uniform vec2 uPointer;
+  uniform float uPointerInfluence;
+  uniform float uPointerSpeed;
+  uniform float uAspect;
+  uniform float uAutoAnim;
+  attribute vec3 aBasePos;
+  attribute vec3 aColor;
+  attribute float aSize;
+  attribute float aPhase;
+  attribute float aDrift;
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying float vDistFromRibbon;
+
+  void main() {
+    vec3 pos = aBasePos;
+
+    // FASTER vertical drift with auto-animation
+    pos.y += sin(uTime * 0.25 + aPhase) * 0.035 * aDrift + uAutoAnim * 0.025;
+    pos.x += cos(uTime * 0.18 + aPhase * 1.7) * 0.025 * aDrift;
+    pos.z += sin(uTime * 0.12 + aPhase * 0.9) * 0.02 * aDrift;
+
+    // Subtle magnetic pull from cursor — weaker than main particles
+    vec2 pointerWorld = uPointer * vec2(uAspect, 1.0) * 3.6;
+    float d = length(pointerWorld - pos.xy);
+    float magnetic = exp(-d * d / 1.0) * uPointerInfluence * 0.4;
+    float swirl = magnetic * (0.04 + uPointerSpeed * 0.07);
+    pos.x += (pointerWorld.x - pos.x) * magnetic * 0.1 - (pointerWorld.y - pos.y) * swirl;
+    pos.y += (pointerWorld.y - pos.y) * magnetic * 0.1 + (pointerWorld.x - pos.x) * swirl;
+
+    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+    float size = aSize * (6.0 / max(-mvPosition.z, 0.1));
+    gl_PointSize = clamp(size * (1.0 + magnetic * 0.4 + uAutoAnim * 0.2), 1.2, 3.2);
+    gl_Position = projectionMatrix * mvPosition;
+
+    vColor = aColor;
+    // FASTER pulse
+    vAlpha = 0.8 + 0.2 * sin(uTime * 1.8 + aPhase * 1.8) + magnetic * 0.25 + uAutoAnim * 0.2;
+    // Track distance from ribbon center for edge clustering
+    vDistFromRibbon = abs(pos.y - sin(pos.x * 0.88 + uTime * 0.2) * 0.45);
+  }
+`;
+
+const DUST_FRAGMENT_SHADER = `
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying float vDistFromRibbon;
+
+  void main() {
+    float dist = length(gl_PointCoord - 0.5);
+    // Extremely tight radial falloff for pinpoint sharpness
+    float core = 1.0 - smoothstep(0.015, 0.4, dist);
+    float alpha = vAlpha * pow(core, 2.0);
+    // Fade dust near ribbon center, keep at edges
+    float edgeFactor = smoothstep(0.15, 0.5, vDistFromRibbon);
+    alpha *= edgeFactor;
+    if (alpha < 0.012) discard;
+    gl_FragColor = vec4(mix(vColor, vec3(1.0), 0.25), alpha);
   }
 `;
 
@@ -397,6 +474,7 @@ export default function AxonParticleField({
           uPointerSpeed: { value: 0 },
           uAspect: { value: width / height },
           uCameraPos: { value: new THREE.Vector3(0, 0, 6.3) },
+          uAutoAnim: { value: 0 },
         },
         transparent: true,
         depthWrite: false,
@@ -417,9 +495,10 @@ export default function AxonParticleField({
       const sizes = new Float32Array(pCount);
       const phases = new Float32Array(pCount);
 
-      const cyan = new THREE.Color(CYAN_RIM);
-      const silver = new THREE.Color(SILVER_HIGHLIGHT);
-      const violet = new THREE.Color(VIOLET_RIM);
+      const lime = new THREE.Color(ELECTRIC_LIME);
+      const cyan = new THREE.Color(BRIGHT_CYAN);
+      const silver = new THREE.Color(BRIGHT_SILVER);
+      const violet = new THREE.Color(BRIGHT_VIOLET);
 
       for (let i = 0; i < pCount; i++) {
         const x = (Math.random() - 0.5) * (width / height) * 9.0;
@@ -433,11 +512,11 @@ export default function AxonParticleField({
         basePositions[i * 3 + 2] = z;
 
         const r = Math.random();
-        const color = r < 0.45 ? silver.clone() : r < 0.75 ? cyan.clone() : violet.clone();
+        const color = r < 0.35 ? lime.clone() : r < 0.65 ? cyan.clone() : r < 0.85 ? violet.clone() : silver.clone();
         colors[i * 3] = color.r;
         colors[i * 3 + 1] = color.g;
         colors[i * 3 + 2] = color.b;
-        sizes[i] = 0.8 + Math.random() * 1.0;
+        sizes[i] = 1.0 + Math.random() * 1.2;
         phases[i] = Math.random() * 6.283;
       }
 
@@ -456,6 +535,7 @@ export default function AxonParticleField({
           uPointerInfluence: { value: 0 },
           uPointerSpeed: { value: 0 },
           uAspect: { value: width / height },
+          uAutoAnim: { value: 0 },
         },
         transparent: true,
         depthWrite: false,
@@ -466,6 +546,86 @@ export default function AxonParticleField({
       const particles = new THREE.Points(particleGeometry, particleMaterial);
       particles.frustumCulled = false;
       scene.add(particles);
+
+      // Fine pinpoint dust layer
+      const dustGeometry = new THREE.BufferGeometry();
+      const dustCount = Math.max(200, Math.floor(particleCount * density * 0.35));
+      const dustPositions = new Float32Array(dustCount * 3);
+      const dustBasePositions = new Float32Array(dustCount * 3);
+      const dustColors = new Float32Array(dustCount * 3);
+      const dustSizes = new Float32Array(dustCount);
+      const dustPhases = new Float32Array(dustCount);
+      const dustDrifts = new Float32Array(dustCount);
+
+      const dustLime = new THREE.Color(ELECTRIC_LIME);
+      const dustCyan = new THREE.Color(BRIGHT_CYAN);
+      const dustSilver = new THREE.Color(BRIGHT_SILVER);
+      const dustViolet = new THREE.Color(BRIGHT_VIOLET);
+
+      for (let i = 0; i < dustCount; i++) {
+        // Distribute along ribbon edges — cluster near the twisted S-curve
+        const u = Math.random();
+        const edgeBias = Math.random() < 0.7 ? (Math.random() < 0.5 ? -1 : 1) : 0;
+
+        // Follow ribbon centerline with edge offset
+        const cx = (u - 0.5) * 7.8 + 0.35;
+        const cy = Math.sin(u * Math.PI * 2.0 - 0.6) * 1.10 + (u - 0.5) * 0.85;
+        const cz = Math.cos(u * Math.PI * 2.0 - 0.6) * 0.70;
+
+        // Add perpendicular offset toward ribbon edges
+        const taper = 0.55 + 0.45 * Math.pow(Math.sin(Math.PI * u), 0.45);
+        const ribbonWidth = 1.35 * taper;
+        const edgeOffset = edgeBias * ribbonWidth * (0.7 + Math.random() * 0.3);
+        const jitter = (Math.random() - 0.5) * 0.15;
+
+        const x = cx + edgeOffset + jitter;
+        const y = cy + (Math.random() - 0.5) * 0.35;
+        const z = cz - 0.4 - Math.random() * 1.2;
+
+        dustPositions[i * 3] = x;
+        dustPositions[i * 3 + 1] = y;
+        dustPositions[i * 3 + 2] = z;
+        dustBasePositions[i * 3] = x;
+        dustBasePositions[i * 3 + 1] = y;
+        dustBasePositions[i * 3 + 2] = z;
+
+        const r = Math.random();
+        const color = r < 0.4 ? dustLime.clone() : r < 0.7 ? dustCyan.clone() : r < 0.88 ? dustViolet.clone() : dustSilver.clone();
+        dustColors[i * 3] = color.r;
+        dustColors[i * 3 + 1] = color.g;
+        dustColors[i * 3 + 2] = color.b;
+        dustSizes[i] = 0.4 + Math.random() * 0.3; // Slightly larger pinpoints
+        dustPhases[i] = Math.random() * 6.283;
+        dustDrifts[i] = 0.5 + Math.random() * 0.5;
+      }
+
+      dustGeometry.setAttribute("position", new THREE.BufferAttribute(dustPositions, 3));
+      dustGeometry.setAttribute("aBasePos", new THREE.BufferAttribute(dustBasePositions, 3));
+      dustGeometry.setAttribute("aColor", new THREE.BufferAttribute(dustColors, 3));
+      dustGeometry.setAttribute("aSize", new THREE.BufferAttribute(dustSizes, 1));
+      dustGeometry.setAttribute("aPhase", new THREE.BufferAttribute(dustPhases, 1));
+      dustGeometry.setAttribute("aDrift", new THREE.BufferAttribute(dustDrifts, 1));
+
+      const dustMaterial = new THREE.ShaderMaterial({
+        vertexShader: DUST_VERTEX_SHADER,
+        fragmentShader: DUST_FRAGMENT_SHADER,
+        uniforms: {
+          uTime: { value: 0 },
+          uPointer: { value: new THREE.Vector2(0, 0) },
+          uPointerInfluence: { value: 0 },
+          uPointerSpeed: { value: 0 },
+          uAspect: { value: width / height },
+          uAutoAnim: { value: 0 },
+        },
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        blending: THREE.NormalBlending, // Sharp pinpoints, no additive bloom
+        toneMapped: false,
+      });
+      const dust = new THREE.Points(dustGeometry, dustMaterial);
+      dust.frustumCulled = false;
+      scene.add(dust);
 
       const render = () => renderer?.render(scene, camera);
       let elapsed = 0;
@@ -485,27 +645,35 @@ export default function AxonParticleField({
         const delta = Math.min((time - lastTime) / 1000, 0.05);
         lastTime = time;
         elapsed += delta;
-        pointerX += (targetPointerRef.current.x - pointerX) * 0.06;
-        pointerY += (targetPointerRef.current.y - pointerY) * 0.06;
-        pointerInfluence += ((pointerActiveRef.current ? 1 : 0) - pointerInfluence) * 0.06;
-        pointerVelocityRef.current *= 0.9;
+        pointerX += (targetPointerRef.current.x - pointerX) * 0.08;
+        pointerY += (targetPointerRef.current.y - pointerY) * 0.08;
+        pointerInfluence += ((pointerActiveRef.current ? 1 : 0) - pointerInfluence) * 0.08;
+        pointerVelocityRef.current *= 0.88;
 
-        for (const material of [ribbonMaterial, particleMaterial]) {
+        // Auto-animation factor: breathes and rotates even without user input
+        const autoAnim = Math.sin(elapsed * 0.3) * 0.5 + Math.sin(elapsed * 0.7) * 0.3 + 0.5;
+
+        for (const material of [ribbonMaterial, particleMaterial, dustMaterial]) {
           (material.uniforms.uTime as { value: number }).value = elapsed;
           (material.uniforms.uPointer as { value: THREE.Vector2 }).value.set(pointerX, pointerY);
           (material.uniforms.uPointerInfluence as { value: number }).value = pointerInfluence;
           (material.uniforms.uPointerSpeed as { value: number }).value = pointerVelocityRef.current;
+          (material.uniforms.uAutoAnim as { value: number }).value = autoAnim;
         }
 
-        ribbon.rotation.z = -0.28 + Math.sin(elapsed * 0.14) * 0.03;
-        ribbon.rotation.x = 0.18 + pointerY * 0.035 + Math.sin(elapsed * 0.11) * 0.01;
-        ribbon.rotation.y = -0.22 + pointerX * 0.035 + Math.cos(elapsed * 0.09) * 0.01;
-        ribbon.position.x = 1.35 + pointerX * 0.06;
-        ribbon.position.y = -0.15 + pointerY * 0.03;
+        // Enhanced auto-animation: continuous gentle rotation and breathing
+        ribbon.rotation.z = -0.28 + Math.sin(elapsed * 0.14) * 0.05 + Math.sin(elapsed * 0.07) * 0.02;
+        ribbon.rotation.x = 0.18 + pointerY * 0.05 + Math.sin(elapsed * 0.11) * 0.02 + Math.sin(elapsed * 0.05) * 0.015;
+        ribbon.rotation.y = -0.22 + pointerX * 0.05 + Math.cos(elapsed * 0.09) * 0.02 + Math.cos(elapsed * 0.06) * 0.015;
+        ribbon.position.x = 1.35 + pointerX * 0.08 + Math.sin(elapsed * 0.08) * 0.12;
+        ribbon.position.y = -0.15 + pointerY * 0.05 + Math.cos(elapsed * 0.10) * 0.08;
+        ribbon.position.z = Math.sin(elapsed * 0.06) * 0.15;
 
-        camera.position.x += (pointerX * 0.03 - camera.position.x) * 0.008;
-        camera.position.y += (pointerY * 0.02 - camera.position.y) * 0.008;
-        camera.lookAt(0, 0, 0);
+        // Camera follows with more dynamic movement
+        camera.position.x += (pointerX * 0.05 + Math.sin(elapsed * 0.07) * 0.08 - camera.position.x) * 0.012;
+        camera.position.y += (pointerY * 0.035 + Math.cos(elapsed * 0.09) * 0.06 - camera.position.y) * 0.012;
+        camera.position.z += (6.3 + Math.sin(elapsed * 0.05) * 0.15 - camera.position.z) * 0.008;
+        camera.lookAt(Math.sin(elapsed * 0.08) * 0.15, Math.cos(elapsed * 0.10) * 0.08, 0);
         (ribbonMaterial.uniforms.uCameraPos as { value: THREE.Vector3 }).value.copy(camera.position);
 
         render();
@@ -522,6 +690,7 @@ export default function AxonParticleField({
         renderer?.setSize(nextWidth, nextHeight);
         (ribbonMaterial.uniforms.uAspect as { value: number }).value = nextWidth / nextHeight;
         (particleMaterial.uniforms.uAspect as { value: number }).value = nextWidth / nextHeight;
+        (dustMaterial.uniforms.uAspect as { value: number }).value = nextWidth / nextHeight;
         render();
       };
       window.addEventListener("resize", onResize);
@@ -533,6 +702,8 @@ export default function AxonParticleField({
         ribbonMaterial.dispose();
         particleGeometry.dispose();
         particleMaterial.dispose();
+        dustGeometry.dispose();
+        dustMaterial.dispose();
         renderer?.dispose();
       };
     } catch (error) {

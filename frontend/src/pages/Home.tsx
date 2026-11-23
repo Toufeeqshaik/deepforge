@@ -18,6 +18,7 @@ import {
   ScrambleText,
 } from "../components/motion";
 import AxonParticleField from "../components/motion/AxonParticleField";
+import FaceScanVisualization from "../components/motion/FaceScanVisualization";
 
 /* ============================================================================
    DeepForge — Home
@@ -250,56 +251,84 @@ function CapabilityCard({ capability }: { capability: Capability }) {
 
 function PipelineRow({ pipeline }: { pipeline: (typeof PIPELINES)[number] }) {
   const tone = PIPELINE_TONES[pipeline.tone];
+
+  // Detail tooltip content
+  const detail = {
+    "/analyze/image": "Scope: Still images (JPEG, PNG, WebP) · Detectors: ELA, Noise, C2PA, Metadata, JPEG Ghosts, FFT",
+    "/analyze/video": "Scope: Video files (MP4, WebM) · Frame sampling + SimLBR ensemble · Temporal consistency",
+    "/analyze/audio": "Scope: Audio files (WAV, MP3, FLAC) · Spectral heuristic (centroid, bandwidth, ZCR, rolloff) · Experimental",
+  }[pipeline.route];
+
   return (
-    <div
-      className={`glass-subtle flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${tone.row}`}
+    <Link
+      to={pipeline.route}
+      className={`group glass-subtle flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${tone.row} transition-all duration-200 hover:border-cyan-400/30 hover:bg-cyan-400/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-0`}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          window.location.href = pipeline.route;
+        }
+      }}
+      aria-label={`${pipeline.name} — ${pipeline.status} — ${detail}`}
     >
       <div className="flex min-w-0 items-center gap-2.5">
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} aria-hidden="true" />
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-medium text-text-primary">{pipeline.name}</p>
+          <p className="truncate text-[13px] font-medium text-text-primary group-hover:text-cyan-300 transition-colors">{pipeline.name}</p>
           <p className="truncate font-mono text-[10px] text-text-muted">{pipeline.route}</p>
         </div>
       </div>
       <span
-        className={`shrink-0 rounded-full border px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider ${tone.badge}`}
+        className={`shrink-0 rounded-full border px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider ${tone.badge} transition-colors`}
       >
         {pipeline.status}
       </span>
-    </div>
+
+      {/* Hover/focus detail tooltip — CSS-only for performance */}
+      <span className="absolute bottom-full left-0 right-0 mb-2 px-3 py-2 glass-strong rounded-lg border border-white/[0.08] text-[11px] text-text-secondary opacity-0 translate-y-1 pointer-events-none transition-all duration-150 group-hover:opacity-100 group-hover:translate-y-0 group-focus-visible:opacity-100 group-focus-visible:translate-y-0 z-10 whitespace-nowrap">
+        {detail}
+      </span>
+    </Link>
   );
 }
 
 function PipelineStatusCard() {
   return (
-    <aside className="glass relative overflow-hidden rounded-2xl p-5">
+    <aside
+      className="glass-subtle relative overflow-hidden rounded-2xl p-4 transition-all duration-500 hover:shadow-[0_0_30px_rgba(56,189,248,0.12)] hover:border-cyan-400/20 animate-slide-up-fade"
+      style={{
+        // Subtle floating animation
+        animation: 'float-subtle 6s ease-in-out infinite',
+      }}
+    >
       <span
         aria-hidden="true"
         className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent"
       />
       <div className="flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.18em] text-text-secondary">
-          <Activity className="h-3.5 w-3.5 text-cyan-300" aria-hidden="true" />
+        <h2 className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-text-secondary">
+          <Activity className="h-3 w-3 text-cyan-300" aria-hidden="true" />
           <ScrambleText trigger="mount" duration={420}>
             Pipeline Status
           </ScrambleText>
         </h2>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-400/25 bg-teal-400/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-teal-300">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-400/25 bg-teal-400/10 px-2 py-0.5 font-mono text-[8px] uppercase tracking-wider text-teal-300">
           <span className="h-1 w-1 animate-pulse rounded-full bg-teal-400" aria-hidden="true" />
           Live
         </span>
       </div>
 
-      <div className="mt-4 space-y-2">
+      <div className="mt-3 space-y-1.5">
         {PIPELINES.map((pipeline) => (
           <PipelineRow key={pipeline.name} pipeline={pipeline} />
         ))}
       </div>
 
-      <dl className="mt-4 space-y-2 border-t border-white/[0.06] pt-4 font-mono text-[10px]">
+      <dl className="mt-3 space-y-1.5 border-t border-white/[0.06] pt-3 font-mono text-[9px]">
         <div className="flex items-center justify-between gap-3">
-          <dt className="flex items-center gap-1.5 text-text-muted">
-            <Layers className="h-3 w-3" aria-hidden="true" />
+          <dt className="flex items-center gap-1 text-text-muted">
+            <Layers className="h-2.5 w-2.5" aria-hidden="true" />
             Detector registry
           </dt>
           <dd className="tabular-nums text-text-secondary">
@@ -307,15 +336,15 @@ function PipelineStatusCard() {
           </dd>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <dt className="flex items-center gap-1.5 text-text-muted">
-            <Fingerprint className="h-3 w-3" aria-hidden="true" />
+          <dt className="flex items-center gap-1 text-text-muted">
+            <Fingerprint className="h-2.5 w-2.5" aria-hidden="true" />
             File fingerprint
           </dt>
           <dd className="text-text-secondary">SHA-256</dd>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <dt className="flex items-center gap-1.5 text-text-muted">
-            <Terminal className="h-3 w-3" aria-hidden="true" />
+          <dt className="flex items-center gap-1 text-text-muted">
+            <Terminal className="h-2.5 w-2.5" aria-hidden="true" />
             Engine
           </dt>
           <dd className="text-text-secondary">v0.1.0</dd>
@@ -382,7 +411,7 @@ export default function Home() {
         {/* ── Hero ───────────────────────────────────────────────────── */}
         <section aria-labelledby="hero-heading" className="stagger-children">
           <div className="grid items-start gap-8 lg:grid-cols-12 xl:gap-12">
-            <div className="glass rounded-2xl p-5 sm:p-6 lg:col-span-7 lg:p-8">
+            <div className="rounded-2xl p-5 sm:p-6 lg:col-span-7 lg:p-8" style={{ background: 'transparent', backdropFilter: 'none', border: 'none', boxShadow: 'none' }}>
               <div className="flex flex-wrap items-center gap-3">
                 <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-cyan-300/80">
                   <ScrambleText trigger="mount" duration={520}>
@@ -469,12 +498,19 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="lg:col-span-5"><PipelineStatusCard /></div>
+            <div className="lg:col-span-5 mt-20 lg:mt-0">
+              <FaceScanVisualization className="animate-slide-up-fade" />
+            </div>
           </div>
 
           <div className="mt-8">
             <TelemetryStrip />
           </div>
+        </section>
+
+        {/* ── Pipeline Status (moved below hero) ───────────────────────── */}
+        <section aria-labelledby="pipeline-status-heading" className="animate-slide-up-fade">
+          <PipelineStatusCard />
         </section>
 
         {/* ── Detection capabilities ─────────────────────────────────── */}
