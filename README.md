@@ -8,19 +8,52 @@
 ![React](https://img.shields.io/badge/React-19-61dafb.svg)
 ![Vite](https://img.shields.io/badge/Vite-8-646cff.svg)
 
+DeepForge is an AI-powered digital media forensics platform for analyzing images, video, and audio. It provides explainable, evidence-oriented results and treats model outputs as **forensic indicators, not proof**.
+
 ---
 
-## Overview
+## What's New
 
-DeepForge is an AI-powered digital media forensics platform for analyzing images, video, and audio. It provides explainable, evidence-oriented results and treats model outputs as forensic indicators—not absolute proof.
+- **New image detection model**: switched the default image analysis to a **SimLBR ensemble** (`SimLBR-aigc` + `SimLBR-genimage`, CVPR 2026 Latent Blending Regularization).
+- **Ensemble scoring**: available image model confidences are averaged into a combined score/verdict.
+- **DINOv3 fallback**: when `DINO_V3_KEY` is not set, the adapter falls back to the public Transformers mirror `samttran/dinov3-vitl16-pretrain-lvd1689m` for local testing.
+- **Updated UI/docs**: stale EfficientNet/FF++ labels replaced with current SimLBR ensemble information.
 
-### Current image detection (default)
+---
 
-- **SimLBR-aigc** — CVPR 2026 SimLBR detector (AIGC pretrained variant)
-- **SimLBR-genimage** — CVPR 2026 SimLBR detector (GenImage pretrained variant)
-- **Ensemble** — backend averages available model scores into a combined verdict
+## Features & Status
 
-> Results are probabilistic forensic signals. They should not be treated as legal proof.
+| Feature | Status | Notes |
+|---|---|---|
+| Image analysis (SimLBR ensemble) | ✅ Working | Default active path. Uses `SimLBR-aigc` + `SimLBR-genimage`. |
+| Combined verdict & per-model scores | ✅ Working | Average of available model confidences. |
+| Frontend upload/analyze UI | ✅ Working | Image flow tested locally. |
+| Video analysis (frame sampling) | ⚠️ Limited / experimental | Samples frames and runs them through the configured image detector ensemble. **Not a dedicated video deepfake model.** |
+| Audio analysis (spectral heuristic) | ⚠️ Experimental / not validated | Heuristic spectral indicators only. **Not a validated deepfake detector.** |
+| Grad-CAM heatmap | ❌ Not working for current model | SimLBR/transformer-backed flow does not currently expose compatible Grad-CAM heatmaps in the UI. |
+| Legacy detectors (FF++ EfficientNet, Smaug, Community Forensics) | ⚠️ Present but disabled by default | Adapters remain in registry/codebase; can be re-enabled manually if needed. |
+| PDF/forensic report export | ❌ Not implemented / not verified | Do not rely on this as a current working feature. |
+| Legal/court-grade attribution | ❌ Not supported | Outputs are probabilistic forensic indicators only. |
+
+---
+
+## Current Image Detection
+
+### Default active models
+
+| Model | Variant | Status | Purpose |
+|---|---|---|---|
+| SimLBR-aigc | AIGC pretrained | Enabled | AI-generated image detection |
+| SimLBR-genimage | GenImage pretrained | Enabled | AI-generated image detection |
+
+### Verdict mapping
+
+- `< 0.35` → `likely_authentic`
+- `0.35 - 0.65` → `uncertain`
+- `> 0.65` → `likely_manipulated`
+- No available model scores → `inconclusive`
+
+> Scores are model confidence indicators, not calibrated legal probabilities.
 
 ---
 
@@ -31,7 +64,7 @@ DeepForge is an AI-powered digital media forensics platform for analyzing images
 | Backend | Python, FastAPI, PyTorch, Transformers |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS |
 | Image Models | SimLBR (AIGC + GenImage), DINOv3 ViT-L/16 backbone |
-| Optional/Legacy | Community Forensics, Smaug, FF++ adapters present in registry (disabled by default) |
+| Optional/Legacy | Community Forensics, Smaug, FF++ adapters in registry (disabled by default) |
 
 ---
 
@@ -39,7 +72,7 @@ DeepForge is an AI-powered digital media forensics platform for analyzing images
 
 ### Prerequisites
 
-- Python 3.11+ (project currently tested with Python 3.15 venv)
+- Python 3.11+ (tested with Python 3.15 venv)
 - Node.js 20+
 - Git
 
@@ -59,12 +92,12 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# SimLBR is a research repo (not a packaged pip project) - clone it locally:
+# SimLBR is a research repo (not a packaged pip project)
 mkdir -p third_party
 git clone https://github.com/mvrl/SimLBR.git third_party/SimLBR
 ```
 
-The SimLBR adapter auto-detects `backend/third_party/SimLBR`.
+The adapter auto-detects `backend/third_party/SimLBR`.
 
 ### 3. Frontend setup
 
@@ -75,14 +108,14 @@ npm install
 
 ### 4. Run
 
-**Terminal 1 - Backend:**
+**Terminal 1 - Backend**
 ```bash
 cd backend
 source .venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-**Terminal 2 - Frontend:**
+**Terminal 2 - Frontend**
 ```bash
 cd frontend
 npm run dev
@@ -94,66 +127,31 @@ Open **http://localhost:5173**.
 
 ## DINOv3 Backbone Note
 
-SimLBR uses a frozen DINOv3 ViT-L/16 backbone. Official DINOv3 weights may be gated.
+SimLBR uses a frozen DINOv3 ViT-L/16 backbone.
 
-- **Default fallback in this repo**: if `DINO_V3_KEY` is not set, the SimLBR adapter patches SimLBR to load DINOv3 via Transformers from the public mirror `samttran/dinov3-vitl16-pretrain-lvd1689m`.
+- **Fallback (current default behavior)**: if `DINO_V3_KEY` is not set, the adapter patches SimLBR to load DINOv3 via Transformers from the public mirror `samttran/dinov3-vitl16-pretrain-lvd1689m`.
 - **Official path**: set `DINO_V3_KEY` to a local DINOv3 checkpoint path/URL supported by the upstream SimLBR loader.
 
 ```bash
 export DINO_V3_KEY=/path/to/dinov3_vitl16_pretrain.pth
 ```
 
-Use the official path when you have licensed/access-approved weights and want upstream parity.
+Use the official/licensed path for production or strict provenance requirements.
 
 ---
 
-## How Image Analysis Works
+## Known Limitations / Not Working Yet
 
-1. **Upload** - user submits an image.
-2. **Validation** - backend validates type/size.
-3. **Model inference** - enabled image detectors run (default: SimLBR AIGC + GenImage).
-4. **Aggregation** - available model confidences are averaged into `combined_score`.
-5. **Verdict** - mapped to likely authentic / uncertain / likely manipulated / inconclusive based on thresholds and availability.
-6. **Report** - UI/API return per-model results, combined verdict, and limitations.
-
----
-
-## Important Notes
-
-### What this is NOT
-
-- ❌ **Not legal evidence** — forensic indicator only.
-- ❌ **Not 100% accurate** — false positives and false negatives are possible.
-- ❌ **Not universal** — performance varies by generator, edits, compression, and domain.
-
-### Known limitations
-
-- **AI detection is probabilistic**. Some real images may be flagged uncertain/fake; some AI images may be missed.
-- **Compression/resizing** can remove or distort forensic cues.
-- **Video/audio routes exist**, but capabilities and model maturity vary by modality.
-- **Public DINOv3 mirror fallback** is for practical testing; verify license/provenance for your deployment.
-
-### Privacy
-
-- Uploaded files are stored under `backend/uploads/` for analysis workflows.
-- Do not treat local storage as a compliance boundary; review deployment settings before production use.
+- **Heatmaps (Grad-CAM)**: not available for the current SimLBR ensemble.
+- **Video detection**: limited frame-sampling pipeline; not a dedicated temporal video deepfake model.
+- **Audio detection**: experimental spectral heuristic; not validated for real-world deepfake detection.
+- **False positives/negatives**: real images can be flagged; some AI-generated images can be missed.
+- **Compression/domain shift**: heavy compression, resizing, screenshots, or out-of-domain images can reduce accuracy.
+- **Legal use**: not suitable as standalone legal evidence.
 
 ---
 
-## Development
-
-```bash
-# Backend
-cd backend
-source .venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# Frontend
-cd frontend
-npm run dev
-```
-
-### Checks
+## Development Checks
 
 ```bash
 # Frontend
@@ -161,7 +159,7 @@ cd frontend
 npx tsc --noEmit
 npm run build
 
-# Backend syntax (quick)
+# Backend quick syntax check
 cd ..
 python -m py_compile backend/app/detectors/image/simlbr_adapter.py backend/app/detectors/image/registry.py backend/app/detectors/image/service.py
 ```
@@ -170,7 +168,7 @@ python -m py_compile backend/app/detectors/image/simlbr_adapter.py backend/app/d
 
 ## Project Structure
 
-```
+```text
 deepforge/
 ├── backend/
 │   ├── app/
@@ -199,7 +197,7 @@ deepforge/
 | SimLBR | https://github.com/mvrl/SimLBR | Research code/model; check upstream license/terms |
 | SimLBR pretrained heads | https://huggingface.co/MVRL/SimLBR | Downloaded by SimLBR loader |
 | DINOv3 ViT-L/16 (official) | https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m | Gated; accept license/terms |
-| DINOv3 public mirror fallback | https://huggingface.co/samttran/dinov3-vitl16-pretrain-lvd1689m | Used only as fallback when `DINO_V3_KEY` is not set; verify provenance/license for your use |
+| DINOv3 public mirror fallback | https://huggingface.co/samttran/dinov3-vitl16-pretrain-lvd1689m | Used only when `DINO_V3_KEY` is not set; verify provenance/license for your use |
 
 ---
 
