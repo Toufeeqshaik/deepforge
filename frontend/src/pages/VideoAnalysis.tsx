@@ -125,9 +125,9 @@ export default function VideoAnalysis() {
           Video Analysis
         </h1>
         <p className="text-text-secondary max-w-2xl text-base sm:text-lg leading-relaxed">
-          Upload a video for frame-level face-swap detection. DeepForge samples frames at uniform
-          intervals and runs each through the EfficientNet-B0 detector. Results are aggregated
-          frame-level inferences — not a dedicated video model.
+          Upload a video for frame-level analysis. DeepForge samples frames at uniform intervals and
+          runs each through the configured image detector ensemble. Results are aggregated frame-level
+          inferences — not a dedicated video model.
         </p>
       </header>
 
@@ -302,11 +302,11 @@ export default function VideoAnalysis() {
               </div>
               <div className="flex items-baseline justify-between gap-3">
                 <dt className="text-xs text-text-muted">Model</dt>
-                <dd className="text-right font-mono-tabular-xs text-text-secondary">EfficientNet-B0</dd>
+                <dd className="text-right font-mono-tabular-xs text-text-secondary">SimLBR Ensemble</dd>
               </div>
               <div className="flex items-baseline justify-between gap-3">
-                <dt className="text-xs text-text-muted">Dataset</dt>
-                <dd className="text-right font-mono-tabular-xs text-text-secondary">FaceForensics++ C23</dd>
+                <dt className="text-xs text-text-muted">Backbone</dt>
+                <dd className="text-right font-mono-tabular-xs text-text-secondary">DINOv3 ViT-L/16</dd>
               </div>
               <div className="flex items-baseline justify-between gap-3">
                 <dt className="text-xs text-text-muted">Input</dt>

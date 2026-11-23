@@ -2,7 +2,7 @@
 
 Honest approach: DeepForge does not currently run a dedicated video
 deepfake model. Instead, video files are sampled at uniform intervals
-and each frame is run through the EfficientNet-B0 face-swap detector.
+and each sampled frame is analyzed by the configured image detection service.
 Results are aggregated (max, mean, count of frames above threshold) so
 the user gets a temporal signal without fabricating a dedicated video
 model.
@@ -146,9 +146,9 @@ class VideoDetectionService:
                 "duration_sec": round(duration_sec, 2),
                 "sample_count": sample_count,
                 "device": self._device,
-                "model": "Xicor9/efficientnet-b0-ffpp-c23",
+                "model": "configured-image-detector-ensemble",
                 "method": "uniform_frame_sampling",
-                "architecture": "EfficientNet-B0",
+                "architecture": "SimLBR/ensemble (via image detection service)",
             },
         }
 
@@ -202,7 +202,7 @@ class VideoDetectionService:
             "status": "completed",
             "video_verdict": video_verdict,
             "confidence": round(mean_calibrated, 4) if mean_calibrated is not None else None,
-            "model_name": "EfficientNet-B0 + uniform frame sampling",
+            "model_name": "Image detector ensemble + uniform frame sampling",
             "model_version": "1.0",
             "processing_time_ms": detection_result.get("processing_time_ms", 0.0),
             "device_used": detection_result.get("details", {}).get("device", "cpu"),

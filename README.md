@@ -3,31 +3,35 @@
 **AI-Powered Digital Media Forensics & Deepfake Intelligence Platform**
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)
+![Python](https://img.shields.io/badge/python-3.15%2B-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)
 ![React](https://img.shields.io/badge/React-19-61dafb.svg)
-![Tailwind](https://img.shields.io/badge/Tailwind-3.4-38b2ac.svg)
+![Vite](https://img.shields.io/badge/Vite-8-646cff.svg)
 
 ---
 
 ## Overview
 
-DeepForge is a professional-grade, AI-powered digital media forensics platform capable of detecting face-swap deepfakes in images. Built with transparency and honesty at its core, DeepForge provides forensic-level analysis with explainable AI results.
+DeepForge is an AI-powered digital media forensics platform for analyzing images, video, and audio. It provides explainable, evidence-oriented results and treats model outputs as forensic indicators—not absolute proof.
 
-### What It Does
+### Current image detection (default)
 
-- **Upload images** in JPG, JPEG, PNG, or WEBP format
-- **Real-time face-swap deepfake detection** using a lightweight baseline model
-- **Honest, explainable results** - never presents AI scores as absolute truth
-- **Detailed forensic reports** - calibrated confidence scores, detection details, and limitations
+- **SimLBR-aigc** — CVPR 2026 SimLBR detector (AIGC pretrained variant)
+- **SimLBR-genimage** — CVPR 2026 SimLBR detector (GenImage pretrained variant)
+- **Ensemble** — backend averages available model scores into a combined verdict
 
-### Tech Stack
+> Results are probabilistic forensic signals. They should not be treated as legal proof.
+
+---
+
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Backend | Python, FastAPI, PyTorch, Transformers |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS |
-| AI Model | EfficientNet-B0 (Xicor9/efficientnet-b0-ffpp-c23) |
+| Image Models | SimLBR (AIGC + GenImage), DINOv3 ViT-L/16 backbone |
+| Optional/Legacy | Community Forensics, Smaug, FF++ adapters present in registry (disabled by default) |
 
 ---
 
@@ -35,196 +39,170 @@ DeepForge is a professional-grade, AI-powered digital media forensics platform c
 
 ### Prerequisites
 
-- Python 3.11 or 3.12
+- Python 3.11+ (project currently tested with Python 3.15 venv)
 - Node.js 20+
 - Git
 
-### Installation
+### 1. Clone
 
 ```bash
-# Clone the repository
-git clone <your-fork-url>
+git clone https://github.com/Toufeeqshaik/deepforge.git
 cd deepforge
+```
 
-# Set up backend
+### 2. Backend setup
+
+```bash
 cd backend
 python3 -m venv .venv
-.venv/bin/pip install --upgrade pip
-.venv/bin/pip install -r requirements.txt
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
 
-# Set up frontend
+# SimLBR is a research repo (not a packaged pip project) - clone it locally:
+mkdir -p third_party
+git clone https://github.com/mvrl/SimLBR.git third_party/SimLBR
+```
+
+The SimLBR adapter auto-detects `backend/third_party/SimLBR`.
+
+### 3. Frontend setup
+
+```bash
 cd ../frontend
 npm install
 ```
 
-### Running the Application
+### 4. Run
 
 **Terminal 1 - Backend:**
 ```bash
-cd path/to/deepforge/backend
-.venv/bin/uvicorn app.main:app --port 8000 --host 0.0.0.0
+cd backend
+source .venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 **Terminal 2 - Frontend:**
 ```bash
-cd path/to/deepforge/frontend
+cd frontend
 npm run dev
 ```
 
-Open **http://localhost:5173** in your browser.
+Open **http://localhost:5173**.
 
 ---
 
-## How It Works
+## DINOv3 Backbone Note
 
-### The Detection Process
+SimLBR uses a frozen DINOv3 ViT-L/16 backbone. Official DINOv3 weights may be gated.
 
-1. **Upload** - Submit an image file
-2. **Validation** - Backend validates file type and size
-3. **Preprocessing** - Image is prepared for the AI model
-4. **Analysis** - EfficientNet-B0 model analyzes the image
-5. **Results** - Honest, explainable verdict with confidence scores
+- **Default fallback in this repo**: if `DINO_V3_KEY` is not set, the SimLBR adapter patches SimLBR to load DINOv3 via Transformers from the public mirror `samttran/dinov3-vitl16-pretrain-lvd1689m`.
+- **Official path**: set `DINO_V3_KEY` to a local DINOv3 checkpoint path/URL supported by the upstream SimLBR loader.
 
-### What It Detects
+```bash
+export DINO_V3_KEY=/path/to/dinov3_vitl16_pretrain.pth
+```
 
-DeepForge uses a model trained on **FaceForensics++ C23** to detect:
+Use the official path when you have licensed/access-approved weights and want upstream parity.
 
-- ✅ **DeepFake** - Face swapping with deep learning
-- ✅ **FaceSwap** - Manual or automated face replacement
-- ✅ **Face2Face** - Facial reenactment
-- ✅ **NeuralTextures** - Texture manipulation
+---
 
-### Model Details
+## How Image Analysis Works
 
-| Property | Value |
-|---|---|
-| Model | Xicor9/efficientnet-b0-ffpp-c23 |
-| Architecture | EfficientNet-B0 |
-| Training Dataset | FaceForensics++ C23 |
-| Frame-Level Accuracy | 85.2% (model author's benchmark on FF++ C23, not our own testing) |
-| Inference Time | ~30ms on CPU |
+1. **Upload** - user submits an image.
+2. **Validation** - backend validates type/size.
+3. **Model inference** - enabled image detectors run (default: SimLBR AIGC + GenImage).
+4. **Aggregation** - available model confidences are averaged into `combined_score`.
+5. **Verdict** - mapped to likely authentic / uncertain / likely manipulated / inconclusive based on thresholds and availability.
+6. **Report** - UI/API return per-model results, combined verdict, and limitations.
 
 ---
 
 ## Important Notes
 
-### What This Is NOT
+### What this is NOT
 
-- ❌ **Not legal evidence** - Results are forensic indicators, not courtroom proof
-- ❌ **Not 100% accurate** - Expect false positives/negatives (~10-15%)
-- ❌ **Trained on face-swap data only** - Designed to detect face-swap manipulations (DeepFake, FaceSwap, Face2Face, NeuralTextures) from the FaceForensics++ dataset
+- ❌ **Not legal evidence** — forensic indicator only.
+- ❌ **Not 100% accurate** — false positives and false negatives are possible.
+- ❌ **Not universal** — performance varies by generator, edits, compression, and domain.
 
-### Honest Limitations
+### Known limitations
 
-From the UI, users see:
+- **AI detection is probabilistic**. Some real images may be flagged uncertain/fake; some AI images may be missed.
+- **Compression/resizing** can remove or distort forensic cues.
+- **Video/audio routes exist**, but capabilities and model maturity vary by modality.
+- **Public DINOv3 mirror fallback** is for practical testing; verify license/provenance for your deployment.
 
-> "Face-swap deepfake detector (EfficientNet-B0, FaceForensics++ C23). Accuracy: 85.2% (frame-level) on FF++ C23 per the model author's benchmark — not verified by our own testing. Cross-dataset accuracy drops on newer manipulations or heavily compressed images. Confidence scores are calibrated indicators, not true probabilities."
+### Privacy
 
-### Privacy & Security
-
-- Files are stored temporarily in `/backend/uploads/` with unique analysis IDs
-- All files are deleted after analysis completes
-- No data is sent to external servers
-- Runs entirely on your local machine
+- Uploaded files are stored under `backend/uploads/` for analysis workflows.
+- Do not treat local storage as a compliance boundary; review deployment settings before production use.
 
 ---
 
-## For Team Members
-
-### Development Workflow
+## Development
 
 ```bash
-# Install dependencies
-cd backend && .venv/bin/pip install -r requirements.txt
-cd ../frontend && npm install
+# Backend
+cd backend
+source .venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Run backend
-cd ../backend
-.venv/bin/uvicorn app.main:app --port 8000 --host 0.0.0.0 --reload
-
-# Run frontend (in another terminal)
-cd path/to/deepforge/frontend
+# Frontend
+cd frontend
 npm run dev
 ```
 
-### Testing
+### Checks
 
-- Upload test images (real and deepfake) to verify detection
-- Check browser console for any errors
-- Verify both Simple and Advanced modes work
-- Test error handling with invalid files
+```bash
+# Frontend
+cd frontend
+npx tsc --noEmit
+npm run build
 
-### File Structure
+# Backend syntax (quick)
+cd ..
+python -m py_compile backend/app/detectors/image/simlbr_adapter.py backend/app/detectors/image/registry.py backend/app/detectors/image/service.py
+```
+
+---
+
+## Project Structure
 
 ```
 deepforge/
 ├── backend/
 │   ├── app/
-│   │   ├── api/          # FastAPI routes
-│   │   ├── core/         # Configuration, exceptions
-│   │   ├── models/       # Pydantic schemas
-│   │   ├── services/     # Business logic
-│   │   └── main.py       # FastAPI app
-│   ├── uploads/          # Temporary file storage
-│   └── requirements.txt  # Python dependencies
-└── frontend/
-    ├── src/
-    │   ├── components/   # Reusable React components
-    │   ├── pages/        # Page components
-    │   └── lib/          # Utilities and API client
-    └── package.json      # Node dependencies
+│   │   ├── api/              # FastAPI routes
+│   │   ├── core/             # Config, logging, exceptions
+│   │   ├── detectors/image/  # Image detector adapters/registry/service
+│   │   ├── services/         # Analysis orchestration
+│   │   └── main.py
+│   ├── third_party/          # Local SimLBR clone (gitignored)
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   └── lib/
+│   └── package.json
+└── docs/
 ```
 
 ---
 
-## Project Roadmap
+## Model & License References
 
-- [x] Face-swap deepfake detection (v1.0)
-- [ ] Video deepfake detection
-- [ ] Audio deepfake detection
-- [ ] Multimodal analysis (audio + video)
-- [ ] Explainable AI visualizations (Grad-CAM heatmaps)
-- [ ] PDF report generation
-
----
-
-## Models and Licenses
-
-| Model | Source | License | Used for |
-|---|---|---|---|
-| EfficientNet-B0 (ffpp-c23) | [Xicor9/efficientnet-b0-ffpp-c23](https://huggingface.co/Xicor9/efficientnet-b0-ffpp-c23) on Hugging Face | verify on the model page | Face-swap deepfake detection in images |
-
-> **Note:** Always check the model card on Hugging Face before using this model in any commercial or research context. The FaceForensics++ training data has its own [terms of use](https://github.com/ondyari/FaceForensics).
-
----
-
-## Known Limitations
-
-- **Fully AI-generated images are not reliably detected.** The model was trained on face-swap manipulations (DeepFake, FaceSwap, Face2Face, NeuralTextures). It was not trained on diffusion-model outputs such as those from Midjourney, Stable Diffusion, or DALL-E, and may give incorrect or misleading scores on those images.
-- **Compression degrades accuracy.** Heavy JPEG compression or resizing can remove the subtle artifacts the model relies on, leading to false negatives.
-- **Single-image analysis only.** Video deepfake detection is not yet implemented; uploading a video frame is not a substitute for temporal analysis.
-- **Accuracy figures are from the model author's benchmark**, measured on the FaceForensics++ C23 test set. Performance on other datasets or real-world images may differ significantly.
+| Component | Source | Notes |
+|---|---|---|
+| SimLBR | https://github.com/mvrl/SimLBR | Research code/model; check upstream license/terms |
+| SimLBR pretrained heads | https://huggingface.co/MVRL/SimLBR | Downloaded by SimLBR loader |
+| DINOv3 ViT-L/16 (official) | https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m | Gated; accept license/terms |
+| DINOv3 public mirror fallback | https://huggingface.co/samttran/dinov3-vitl16-pretrain-lvd1689m | Used only as fallback when `DINO_V3_KEY` is not set; verify provenance/license for your use |
 
 ---
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) for details.
-
----
-
-## Acknowledgments
-
-- FaceForensics++ dataset for training data
-- EfficientNet-B0 model by Xicor9
-- Hugging Face for model hosting
-
----
-
-## Contact
-
-For issues or questions, please open an issue on GitHub.
-
----
-
-*DeepForge v1.0 - AI-Powered Digital Media Forensics*
+MIT License - See [LICENSE](LICENSE) for details. Third-party models/repos have their own licenses and terms.

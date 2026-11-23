@@ -110,7 +110,7 @@ const CAPABILITIES: Capability[] = [
     accent: "violet",
     href: "/video",
     Icon: Video,
-    detectors: ["Frame Sampling", "EfficientNet-B0", "Temporal Check", "Face Track"],
+    detectors: ["Frame Sampling", "SimLBR Ensemble", "Temporal Check", "Face Track"],
   },
   {
     title: "Audio Forensics",

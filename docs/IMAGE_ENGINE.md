@@ -1,228 +1,64 @@
 # DeepForge Image Detection Engine
 
-## Overview
+## Current State
 
-This document describes the production-structured, replaceable image detection engine implemented for DeepForge.
+DeepForge image detection uses a pluggable detector registry/service under `backend/app/detectors/image/`.
 
-### Key Objectives
+### Default active models
 
-1. **Replace** the existing Xicor9/efficientnet-b0-ffpp-c23 image detection with a modular, replaceable architecture
-2. **Preserve** existing API contracts and application functionality
-3. **Support** Community Forensics as the preferred model (with placeholder adapter)
-4. **Maintain** CPU-first operation for Intel Core Ultra 7 / 16 GB RAM hardware
-5. **Ensure** no fabricated predictions or fake confidence values
+| Model | Loader | Status | Purpose |
+|---|---|---|---|
+| `SimLBR-aigc` | `simlbr` | Enabled | AI-generated image detection (AIGC variant) |
+| `SimLBR-genimage` | `simlbr` | Enabled | AI-generated image detection (GenImage variant) |
+
+Legacy/optional adapters remain in the codebase/registry (Community Forensics, Smaug, FF++ EfficientNet) but are disabled by default.
 
 ## Architecture
 
-### Module Structure
-
 ```
 backend/app/detectors/image/
-├── __init__.py          # Module initialization
-├── base.py              # Common detector interface (ImageDetector)
-├── preprocessing.py     # Image validation, resizing, normalization
-├── community_forensics.py  # Community Forensics adapter implementation
-├── fallback.py          # Fallback implementation for unavailable models
-└── service.py           # Detector orchestration and selection service
+├── base.py                  # ImageDetector interface + result shape
+├── registry.py              # Model registry (enable/disable, loader, metadata)
+├── service.py               # Loads enabled detectors, runs ensemble, aggregates score
+├── simlbr_adapter.py        # SimLBR adapter (default active)
+├── community_forensics.py   # Legacy/optional
+├── smaug_adapter.py         # Legacy/optional
+├── transformers_adapter.py  # Legacy/optional
+└── fallback.py              # Last-resort fallback
 ```
 
-### Component Details
+## SimLBR Integration
 
-#### 1. `base.py` - Common Detector Interface
-- Defines `ImageDetectionResult` TypedDict with standardized fields:
-  - `prediction`: "real" or "fake" (only when genuine inference performed)
-  - `confidence`: Optional[float] (calibrated confidence when available)
-  - `model_name`: str (e.g., "CommunityForensics")
-  - `model_version`: str (e.g., "1.0.0")
-  - `processing_time_ms`: float
-  - `device_used`: Literal["cpu", "cuda"]
-  - `model_available`: bool
-  - `warnings`: list[str]
-  - `error_details`: Optional[str]
-- `ImageDetector` abstract base class with:
-  - `is_available()`: Check model availability
-  - `run_detection()`: Execute inference on PIL Image
-  - `get_model_info()`: Return metadata
+- Source repo: https://github.com/mvrl/SimLBR
+- Local clone expected at: `backend/third_party/SimLBR` (gitignored)
+- Adapter: `backend/app/detectors/image/simlbr_adapter.py`
+- Pretrained heads: loaded via `SimLBR.from_pretrained("aigc"|"genimage")` from `MVRL/SimLBR`
 
-#### 2. `preprocessing.py` - Image Processing Utilities
-- `validate_image()`: Check file existence and readability
-- `load_image()`: Load PIL Image with error handling
-- `validate_format()`: Support .jpg, .jpeg, .png, .webp, .bmp, .tiff
-- `validate_size()`: Max 50 MB file size limit
-- `resize_image()`: Resize to 224x224 with LANCZOS resampling
-- `to_tensor()`: Convert to normalized torch Tensor
+### DINOv3 backbone
 
-#### 3. `community_forensics.py` - Model Adapter
-- Loads locally supplied Community Forensics checkpoint
-- Verifies checkpoint existence and compatibility
-- Supports CPU (default) and CUDA (automatic)
-- Handles invalid images and unsupported formats
-- Returns `MODEL_NOT_AVAILABLE` status when checkpoint missing
-- Never substitutes another model silently
+Upstream SimLBR loads DINOv3 ViT-L/16 via torch hub and expects `DINO_V3_KEY`. In this repo, the adapter adds a practical fallback:
 
-#### 4. `fallback.py` - Unavailable Model Implementation
-- Always available fallback detector
-- Returns "uncertain" verdict when no model is loaded
-- Built-in EfficientNet-B0 model for basic inference
-- Never blocks processing - always returns valid result
+- If `DINO_V3_KEY` is set: upstream behavior can be used.
+- If `DINO_V3_KEY` is not set: adapter monkeypatches SimLBR backbone to load `samttran/dinov3-vitl16-pretrain-lvd1689m` through Transformers.
 
-#### 5. `service.py` - Orchestrator
-- Manages detector selection between Community Forensics and fallback
-- Ensures consistent API response format
-- Handles model loading and initialization
-- Provides unified `detect()` method for API consumption
+Set `SIMLBR_DINOV3_MODEL` to override the fallback mirror model.
 
-## Model Adapter Requirements
+## Aggregation
 
-### Community Forensics Adapter
+`ImageDetectionService.detect()`:
 
-- **Checkpoint Requirements**:
-  - Must be locally supplied (not bundled with repo)
-  - Must be licence-cleared (MIT source, ODC-By datasets)
-  - File path: `backend/models/community_forensics.pth` (standard location)
-  - Must be compatible with EfficientNet-B0 architecture
+1. Runs all enabled/available detectors.
+2. Collects per-model results.
+3. Computes `combined_score` as average of available model confidences.
+4. Maps combined score to verdict:
+   - `< 0.35` → `likely_authentic`
+   - `0.35 - 0.65` → `uncertain`
+   - `> 0.65` → `likely_manipulated`
+   - no scores → `inconclusive`
 
-- **Loading Behavior**:
-  - Attempts to load at startup
-  - Can be manually loaded via `detector_service.initialize()`
-  - Returns `MODEL_NOT_AVAILABLE` if checkpoint missing
-  - Never substitutes another model
+## Operational Notes
 
-- **Inference Behavior**:
-  - CPU-first operation (settings.MODEL_DEVICE = "cpu")
-  - Automatic CUDA detection and use when available
-  - Inference mode only (no training)
-  - Memory management: temporary tensors released after use
-
-## Standardized Output Format
-
-All detectors return `ImageDetectionResult` with:
-
-| Field | Description | When Available |
-|-------|-------------|----------------|
-| `prediction` | "real" or "fake" | Only when genuine inference performed |
-| `confidence` | Calibrated confidence score (0-1) | Only when genuine inference performed |
-| `model_name` | Model identifier | Always |
-| `model_version` | Version string | Always |
-| `processing_time_ms` | Inference duration | Always |
-| `device_used` | "cpu" or "cuda" | Always |
-| `model_available` | Boolean availability flag | Always |
-| `warnings` | List of warnings | When applicable |
-| `error_details` | Error message if failed | When error occurs |
-
-## Performance Requirements
-
-### Target Hardware
-- Intel Core Ultra 7 255H
-- 16 GB RAM
-- Integrated graphics
-- CPU-first operation
-
-### Optimization Requirements
-- Avoid loading duplicate model instances
-- Use inference mode only (`torch.no_grad()`)
-- Release temporary image and tensor memory after use
-- Avoid unnecessary image copies
-- Handle large uploads safely (50 MB max)
-- Configurable inference (thread count, batch size)
-
-## Testing Requirements
-
-Tests must verify:
-- Valid image input processing
-- Invalid image input handling
-- Unsupported format rejection
-- Missing checkpoint behavior
-- Corrupt checkpoint handling
-- CPU inference with valid checkpoint
-- API response compatibility
-- Model-unavailable fallback behavior
-
-## Documentation Requirements
-
-### `docs/IMAGE_ENGINE.md` - This File
-- Architecture documentation
-- Model requirements
-- Checkpoint installation instructions
-- Licence restrictions
-- API response examples
-- CPU/GPU behavior
-- Testing instructions
-- Known limitations
-
-## Known Limitations
-
-1. Community Forensics checkpoint must be manually downloaded and placed in `backend/models/`
-2. No GPU acceleration support in current implementation (CPU-only)
-3. No batch processing support (batch size 1 only)
-4. No model versioning system (single model instance)
-5. No model caching beyond initial load
-
-## Installation Instructions
-
-1. **Clone repository** (if not already done)
-2. **Install dependencies**:
-   ```bash
-   cd /home/toufeeq/Downloads/deepforge
-   pip install -r backend/requirements.txt
-   ```
-3. **Download Community Forensics checkpoint**:
-   ```bash
-   # Download from Hugging Face (requires authentication)
-   huggingface-cli download JeongsooP/CommunityForensics --include "community_forensics.pth" --destination backend/models/
-   ```
-4. **Verify checkpoint**:
-   ```bash
-   ls backend/models/community_forensics.pth  # Should exist
-   ```
-5. **Run application**:
-   ```bash
-   # Start backend
-   cd backend
-   uvicorn app.main:app --host 0.0.0.0 --port 8000
-   ```
-
-## API Contract Compatibility
-
-- **Preserved endpoints**: `/api/analyze/image`, `/api/analyze/video`, `/api/analyze/audio`
-- **Response format**: Backward-compatible `AnalysisReport` schema
-- **Verdict levels**: Maintained (LIKELY_AUTHENTIC, UNCERTAIN, POTENTIALLY_MANIPULATED, LIKELY_MANIPULATED, INCONCLUSIVE)
-- **Error handling**: Same exception types, enhanced messages
-
-## Migration Path
-
-1. **Phase 1**: Implement Community Forensics adapter with placeholder checkpoint
-2. **Phase 2**: Verify API compatibility with existing frontend
-3. **Phase 3**: Replace Xicor9 model in production after validation
-4. **Phase 4**: Support CUDA inference on NVIDIA systems (future)
-
-## Testing Instructions
-
-1. **Run backend tests**:
-   ```bash
-   cd /home/toufeeq/Downloads/deepforge/backend
-   pytest tests/ -v
-   ```
-2. **Run frontend build**:
-   ```bash
-   cd frontend
-   npm run build
-   ```
-3. **Manual testing**:
-   - Upload valid image through `/analyze/image` endpoint
-   - Verify response contains real/fake prediction with processing time
-   - Test with invalid image formats
-   - Test with missing checkpoint (should return uncertain verdict)
-
-## Verification Checklist
-
-- [ ] Backend test suite passes
-- [ ] Frontend build succeeds
-- [ ] Image analysis functionality works end-to-end
-- [ ] Video and audio routes unchanged
-- [ ] Git diff shows only intended changes
-- [ ] All new/modified files documented
-- [ ] No fabricated predictions or confidence values
-- [ ] No unverified model downloads
-- [ ] No breaking API changes
-- [ ] No unrelated refactoring
+- First run may download SimLBR heads and DINOv3 weights.
+- CPU inference works but is slower; GPU used when available/configured.
+- Third-party SimLBR clone is ignored by git; keep local environment setup documented.
+- Model outputs are forensic indicators, not legal proof.

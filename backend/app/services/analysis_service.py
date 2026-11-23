@@ -196,17 +196,14 @@ class AnalysisService:
                     "Detection models are not loaded. Results are unavailable."
                 )
             else:
+                model_names = [m.get("model_name", "unknown") for m in per_model if m.get("model_available")]
+                if model_names:
+                    limitations.append(f"Active detection ensemble: {', '.join(model_names)}.")
                 limitations.append(
-                    "Multi-model ensemble: EfficientNet-B0 (FaceForensics++ C23) + Smaug-AI (EmbeddingGemma-2)."
+                    "SimLBR detectors target AI-generated/manipulated image signals (AIGC and GenImage variants)."
                 )
                 limitations.append(
-                    "EfficientNet-B0 targets facial reenactment and face-swap manipulations."
-                )
-                limitations.append(
-                    "Smaug-AI targets generative AI images (DALL-E, Midjourney, Stable Diffusion, FLUX)."
-                )
-                limitations.append(
-                    "Combined score reflects multi-model consensus across forensic targets."
+                    "Combined score is an average of available model scores; treat as forensic indicator, not proof."
                 )
 
             elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
@@ -259,6 +256,16 @@ class AnalysisService:
         detector_results: list[DetectorResult] = []
 
         model_limitations_map = {
+            "SimLBR-aigc": [
+                "SimLBR (CVPR 2026) AIGC-pretrained detector using latent blending regularization.",
+                "Targets AI-generated image signals; performance varies by generator/domain.",
+                "Score is a model confidence indicator, not legal proof.",
+            ],
+            "SimLBR-genimage": [
+                "SimLBR (CVPR 2026) GenImage-pretrained detector using latent blending regularization.",
+                "Targets AI-generated image signals; may over-flag some real images as uncertain.",
+                "Score is a model confidence indicator, not legal proof.",
+            ],
             "Xicor9/efficientnet-b0-ffpp-c23": [
                 "Trained on FaceForensics++ C23 for facial manipulation & face-swaps",
                 "Frame-level AUC: 0.933, Video-level AUC: 0.94+",

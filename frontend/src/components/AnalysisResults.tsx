@@ -444,7 +444,7 @@ function Heatmap({ heatmapBase64, available, className = "" }: HeatmapProps) {
             <p className="text-sm font-medium text-text-secondary">Heatmap unavailable</p>
             <p className="mt-1 text-xs text-text-muted max-w-xs">
               Grad-CAM visualization requires a compatible model with accessible convolutional layers.
-              This feature is currently only available for the EfficientNet-B0 detector.
+              This feature is not available for the currently active detector.
             </p>
           </div>
         )}

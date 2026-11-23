@@ -98,12 +98,12 @@ const SYSTEMS: SystemRow[] = [
   {
     name: "DeepForge (this platform)",
     type: "Open research prototype",
-    models: ["EfficientNet-B0 (FaceForensics++ C23)"],
+    models: ["SimLBR (AIGC + GenImage ensemble)"],
     media: ["Image", "Video (frame sampling)", "Audio (spectral heuristic)"],
     openSource: true,
     apiAvailable: true,
     notes:
-      "Transparent, no fabricated scores. Video uses frame sampling; audio uses experimental spectral heuristics. One detector per file.",
+      "Transparent, no fabricated scores. Image analysis uses a SimLBR ensemble; video uses frame sampling; audio uses experimental spectral heuristics.",
     deepforgeBetter: [
       "Open architecture — every limitation is published",
       "No hidden black-box scores",
@@ -112,7 +112,7 @@ const SYSTEMS: SystemRow[] = [
     othersBetter: [
       "No dedicated video deepfake model",
       "No validated audio deepfake model",
-      "Smaller research dataset (FF++ C23)",
+      "Detection coverage depends on model/domain and can miss or over-flag cases",
     ],
   },
   {
