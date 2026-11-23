@@ -9,127 +9,273 @@ interface AxonParticleFieldProps {
   reducedMotionFallback?: React.ReactNode;
 }
 
-const PALETTE = ["#38BDF8", "#2DD4BF", "#A855F7", "#C084FC"];
-const TAU = Math.PI * 2;
+const OBSIDIAN = 0x050608;
+const SILVER_HIGHLIGHT = 0xf8fafc;
+const CYAN_RIM = 0x38bdf8;
+const VIOLET_RIM = 0xa855f7;
 
-function createFallbackPath(index: number): string {
-  const phase = index * 2.399963;
-  const loop = index % 3 === 1;
-  const points = 240;
-  const coordinates: string[] = [];
+const RIBBON_VERTEX_SHADER = `
+  uniform float uTime;
+  uniform vec2 uPointer;
+  uniform float uPointerInfluence;
+  uniform float uPointerSpeed;
+  uniform float uAspect;
+  uniform vec3 uCameraPos;
+  attribute float aPhase;
+  attribute float aFold;
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+  varying vec3 vWorldPos;
+  varying float vFold;
+  varying float vMagnetic;
+  varying float vAlong;
+  varying float vAcross;
 
-  for (let point = 0; point <= points; point++) {
-    const progress = point / points;
-    const angle = progress * TAU * (loop ? 1 : 2.35) + phase;
-    let x: number;
-    let y: number;
+  void main() {
+    vec3 pos = position;
+    vec3 nrm = normal;
 
-    if (loop) {
-      const radiusX = 218 + (index % 5) * 25;
-      const radiusY = 142 + (index % 4) * 18;
-      x = 500 + radiusX * Math.cos(angle) + 78 * Math.cos(angle * 3 + phase * 0.7);
-      y = 300 + radiusY * Math.sin(angle) + 52 * Math.sin(angle * 2 - phase);
-    } else {
-      const radius = 12 + progress * (242 + (index % 4) * 14);
-      const modulatedRadius = radius + 24 * Math.sin(angle * 2.1 + phase);
-      x = 500 + modulatedRadius * Math.cos(angle) + 34 * Math.cos(angle * 2.7 - phase);
-      y = 300 + modulatedRadius * 0.72 * Math.sin(angle) + 28 * Math.sin(angle * 3.2 + phase);
+    // Small sculptural breathing of the folds.
+    float wave = sin(pos.x * 1.7 + uTime * 0.32 + aPhase) * 0.030
+               + sin(pos.x * 3.6 - uTime * 0.21) * 0.016;
+    pos.z += wave;
+    pos.y += sin(pos.x * 2.3 + uTime * 0.26) * 0.018;
+
+    // Cursor magnetic pull with a slight swirl.
+    vec2 pointerWorld = uPointer * vec2(uAspect, 1.0) * 3.6;
+    float d = length(pointerWorld - pos.xy);
+    float magnetic = exp(-d * d / 0.85) * uPointerInfluence;
+    float swirl = magnetic * (0.05 + uPointerSpeed * 0.10);
+    pos.x += (pointerWorld.x - pos.x) * magnetic * 0.11 - (pointerWorld.y - pos.y) * swirl;
+    pos.y += (pointerWorld.y - pos.y) * magnetic * 0.11 + (pointerWorld.x - pos.x) * swirl;
+    pos.z += magnetic * 0.12;
+
+    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+    vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
+
+    vWorldPos = worldPosition.xyz;
+    vNormal = normalize(normalMatrix * nrm);
+    vViewDir = normalize(uCameraPos - worldPosition.xyz);
+    vFold = aFold;
+    vMagnetic = magnetic;
+    vAlong = clamp(pos.x / 7.2 + 0.5, 0.0, 1.0);
+    vAcross = uv.y;
+
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+const RIBBON_FRAGMENT_SHADER = `
+  uniform float uTime;
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+  varying vec3 vWorldPos;
+  varying float vFold;
+  varying float vMagnetic;
+  varying float vAlong;
+  varying float vAcross;
+
+  void main() {
+    vec3 N = normalize(vNormal);
+    if (!gl_FrontFacing) N = -N;
+    vec3 V = normalize(vViewDir);
+
+    vec3 keyLight = normalize(vec3(0.55, 0.85, 0.75));
+    vec3 fillLight = normalize(vec3(-0.70, -0.25, 0.45));
+    float diffuse = max(dot(N, keyLight), 0.0) * 0.92
+                  + max(dot(N, fillLight), 0.0) * 0.22;
+    float fresnel = pow(1.0 - abs(dot(N, V)), 2.4);
+
+    vec3 halfVec = normalize(keyLight + V);
+    float specular = pow(max(dot(N, halfVec), 0.0), 54.0);
+
+    vec3 charcoal = vec3(0.012, 0.016, 0.024);
+    vec3 silverMid = vec3(0.42, 0.47, 0.53);
+    vec3 silverBright = vec3(0.972, 0.980, 0.988);
+
+    vec3 color = mix(charcoal, silverMid, smoothstep(0.08, 0.58, diffuse));
+    color = mix(color, silverBright, clamp(smoothstep(0.64, 0.92, diffuse) * 0.95 + specular * 1.15, 0.0, 1.0));
+
+    // Deep sculptural creases stay near obsidian.
+    float crease = smoothstep(0.22, 0.95, abs(vFold));
+    color *= 1.0 - crease * 0.86;
+
+    // Subtle cyan -> violet edge tint, never a full-screen haze.
+    vec3 rimColor = mix(vec3(0.22, 0.74, 0.97), vec3(0.66, 0.33, 0.97),
+                        smoothstep(0.0, 1.0, vAlong));
+    color += rimColor * fresnel * (0.32 + vMagnetic * 0.45);
+
+    // Slight pulse so the sculpture feels alive without blinking.
+    color *= 0.94 + sin(uTime * 0.8 + vWorldPos.x * 1.4) * 0.04;
+
+    float edge = smoothstep(0.0, 0.05, vAcross) * (1.0 - smoothstep(0.95, 1.0, vAcross));
+    float alpha = 0.90 + 0.10 * edge;
+    gl_FragColor = vec4(color, alpha);
+  }
+`;
+
+const PARTICLE_VERTEX_SHADER = `
+  uniform float uTime;
+  uniform vec2 uPointer;
+  uniform float uPointerInfluence;
+  uniform float uPointerSpeed;
+  uniform float uAspect;
+  attribute vec3 aBasePos;
+  attribute vec3 aColor;
+  attribute float aSize;
+  attribute float aPhase;
+  varying vec3 vColor;
+  varying float vAlpha;
+
+  void main() {
+    vec3 pos = aBasePos;
+    pos.x += sin(uTime * 0.24 + aPhase) * 0.025;
+    pos.y += cos(uTime * 0.20 + aPhase * 1.3) * 0.025;
+
+    vec2 pointerWorld = uPointer * vec2(uAspect, 1.0) * 3.6;
+    float d = length(pointerWorld - pos.xy);
+    float magnetic = exp(-d * d / 0.7) * uPointerInfluence;
+    float swirl = magnetic * (0.06 + uPointerSpeed * 0.10);
+    pos.x += (pointerWorld.x - pos.x) * magnetic * 0.16 - (pointerWorld.y - pos.y) * swirl;
+    pos.y += (pointerWorld.y - pos.y) * magnetic * 0.16 + (pointerWorld.x - pos.x) * swirl;
+
+    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+    float size = aSize * (6.3 / max(-mvPosition.z, 0.1));
+    gl_PointSize = clamp(size * (1.0 + magnetic * 0.6), 1.0, 2.5);
+    gl_Position = projectionMatrix * mvPosition;
+
+    vColor = aColor;
+    vAlpha = 0.40 + 0.30 * sin(uTime * 1.1 + aPhase * 2.0) + magnetic * 0.35;
+  }
+`;
+
+const PARTICLE_FRAGMENT_SHADER = `
+  varying vec3 vColor;
+  varying float vAlpha;
+
+  void main() {
+    float dist = length(gl_PointCoord - 0.5);
+    float core = 1.0 - smoothstep(0.08, 0.5, dist);
+    float alpha = vAlpha * pow(core, 1.6);
+    if (alpha < 0.02) discard;
+    gl_FragColor = vec4(mix(vColor, vec3(1.0), 0.3), alpha);
+  }
+`;
+
+/**
+ * Narrow S-twisted ribbon band. The cross-section is parallel-transported
+ * along a sine-wave centreline and rotated about the tangent, producing a
+ * genuine sculpted twist rather than a flat screen-filling sheet.
+ */
+function createRibbonGeometry(segmentsU: number, segmentsV: number): THREE.BufferGeometry {
+  const length = 7.8;
+  const width = 1.35;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const phases: number[] = [];
+  const folds: number[] = [];
+  const indices: number[] = [];
+
+  const centerAt = (u: number): [number, number, number] => [
+    (u - 0.5) * length + 0.35,
+    Math.sin(u * Math.PI * 2.0 - 0.6) * 1.10 + (u - 0.5) * 0.85,
+    Math.cos(u * Math.PI * 2.0 - 0.6) * 0.70,
+  ];
+
+  for (let i = 0; i <= segmentsU; i++) {
+    const u = i / segmentsU;
+    const [cx, cy, cz] = centerAt(u);
+    const [ax, ay, az] = centerAt(Math.max(0, u - 0.002));
+    const [bx, by, bz] = centerAt(Math.min(1, u + 0.002));
+
+    let tx = bx - ax;
+    let ty = by - ay;
+    let tz = bz - az;
+    const tangentLength = Math.hypot(tx, ty, tz) || 1;
+    tx /= tangentLength;
+    ty /= tangentLength;
+    tz /= tangentLength;
+
+    // normal = up x tangent, binormal = tangent x normal.
+    let nx = tz;
+    let ny = 0;
+    let nz = -tx;
+    const normalLength = Math.hypot(nx, ny, nz) || 1;
+    nx /= normalLength;
+    ny /= normalLength;
+    nz /= normalLength;
+
+    const bx2 = ty * nz - tz * ny;
+    const by2 = tz * nx - tx * nz;
+    const bz2 = tx * ny - ty * nx;
+    const binormalLength = Math.hypot(bx2, by2, bz2) || 1;
+    const bxn = bx2 / binormalLength;
+    const byn = by2 / binormalLength;
+    const bzn = bz2 / binormalLength;
+
+    const twist = u * Math.PI * 3.6 + 0.45;
+    const cosT = Math.cos(twist);
+    const sinT = Math.sin(twist);
+
+    // surface normal for fold displacement.
+    let sx = ty * (nz * cosT + bzn * sinT) - tz * (ny * cosT + byn * sinT);
+    let sy = tz * (nx * cosT + bxn * sinT) - tx * (nz * cosT + bzn * sinT);
+    let sz = tx * (ny * cosT + byn * sinT) - ty * (nx * cosT + bxn * sinT);
+    const surfaceLength = Math.hypot(sx, sy, sz) || 1;
+    sx /= surfaceLength;
+    sy /= surfaceLength;
+    sz /= surfaceLength;
+
+    const taper = 0.55 + 0.45 * Math.pow(Math.sin(Math.PI * u), 0.45);
+
+    for (let j = 0; j <= segmentsV; j++) {
+      const v = j / segmentsV;
+      const side = v - 0.5;
+
+      const fold =
+        Math.sin(u * Math.PI * 14.0 + v * Math.PI * 2.6) * 0.075 +
+        Math.sin(v * Math.PI * 5.5 + u * Math.PI * 6.0) * 0.042;
+
+      const dx = nx * cosT + bxn * sinT;
+      const dy = ny * cosT + byn * sinT;
+      const dz = nz * cosT + bzn * sinT;
+      const offset = side * width * taper + fold;
+
+      positions.push(
+        cx + dx * offset + sx * fold * 0.35,
+        cy + dy * offset + sy * fold * 0.35,
+        cz + dz * offset + sz * fold * 0.35,
+      );
+      uvs.push(u, v);
+      phases.push(u * 4.2 + v * 1.7);
+      folds.push(fold * 9.0);
     }
-
-    coordinates.push(`${point === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`);
   }
 
-  return coordinates.join(" ");
-}
-
-const FALLBACK_FILAMENTS = Array.from({ length: 30 }, (_, index) => ({
-  path: createFallbackPath(index),
-  color: PALETTE[index % PALETTE.length],
-  opacity: index % 4 === 0 ? 0.42 : 0.23,
-}));
-
-type Filament = {
-  geometry: THREE.BufferGeometry;
-  positions: Float32Array;
-  phase: number;
-  material: THREE.LineBasicMaterial;
-};
-
-function createFilamentGeometry(
-  index: number,
-  strand: number,
-  count: number,
-): THREE.BufferGeometry {
-  const positions = new Float32Array(count * 3);
-  const phase = index * 2.399963 + strand * 0.045;
-  const isLoop = index % 3 === 1;
-  const rotation = index * 0.754877666;
-  const cosRotation = Math.cos(rotation);
-  const sinRotation = Math.sin(rotation);
-  const strandOffset = (strand - 1) * 0.025;
-
-  for (let point = 0; point < count; point++) {
-    const progress = point / (count - 1);
-    const angle = progress * TAU * (isLoop ? 1 : 2.45) + phase;
-    let x: number;
-    let y: number;
-    let z: number;
-
-    if (isLoop) {
-      const radiusX = 0.62 + (index % 5) * 0.16;
-      const radiusY = 0.47 + (index % 4) * 0.13;
-      x = radiusX * Math.cos(angle) + 0.28 * Math.cos(angle * 3 + phase * 0.7);
-      y = radiusY * Math.sin(angle) + 0.22 * Math.sin(angle * 2 - phase);
-      z = 0.28 * Math.sin(angle * 2 + phase) + 0.12 * Math.cos(angle * 3);
-    } else {
-      const radius = 0.08 + progress * (1.55 + (index % 4) * 0.11);
-      const modulatedRadius = radius + 0.16 * Math.sin(angle * 2.1 + phase);
-      x = modulatedRadius * Math.cos(angle) + 0.20 * Math.cos(angle * 2.7 - phase);
-      y = modulatedRadius * 0.72 * Math.sin(angle) + 0.18 * Math.sin(angle * 3.2 + phase);
-      z = 0.30 * Math.sin(angle * 1.35 + phase) + 0.12 * Math.cos(angle * 2.2);
+  const row = segmentsV + 1;
+  for (let i = 0; i < segmentsU; i++) {
+    for (let j = 0; j < segmentsV; j++) {
+      const a = i * row + j;
+      const b = a + 1;
+      const c = a + row;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
     }
-
-    const rotatedX = x * cosRotation - y * sinRotation;
-    const rotatedY = x * sinRotation + y * cosRotation;
-    const radialLength = Math.max(0.001, Math.hypot(rotatedX, rotatedY));
-    const offsetScale = 1 + strandOffset / radialLength;
-    const offset = point * 3;
-    positions[offset] = rotatedX * offsetScale;
-    positions[offset + 1] = rotatedY * offsetScale;
-    positions[offset + 2] = z + (strand - 1) * 0.012;
   }
 
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  return geometry;
-}
-
-function createStarField(count: number, aspect: number): THREE.BufferGeometry {
-  const positions = new Float32Array(count * 3);
-  const colors = new Float32Array(count * 3);
-  const cyan = new THREE.Color(PALETTE[0]);
-  const white = new THREE.Color("#E8F4FF");
-
-  for (let index = 0; index < count; index++) {
-    const offset = index * 3;
-    positions[offset] = (Math.random() - 0.5) * aspect * 9.5;
-    positions[offset + 1] = (Math.random() - 0.5) * 7.2;
-    positions[offset + 2] = -0.6 - Math.random() * 2.6;
-    const tint = cyan.clone().lerp(white, Math.random() * 0.82);
-    colors[offset] = tint.r;
-    colors[offset + 1] = tint.g;
-    colors[offset + 2] = tint.b;
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute("aPhase", new THREE.Float32BufferAttribute(phases, 1));
+  geometry.setAttribute("aFold", new THREE.Float32BufferAttribute(folds, 1));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
   return geometry;
 }
 
 export default function AxonParticleField({
   className = "",
-  particleCount = 6000,
+  particleCount = 2000,
   reducedMotionFallback = null,
 }: AxonParticleFieldProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -169,7 +315,7 @@ export default function AxonParticleField({
       ([entry]) => {
         isVisibleRef.current = entry.isIntersecting;
       },
-      { rootMargin: "120px", threshold: 0.01 },
+      { rootMargin: "80px", threshold: 0.01 },
     );
     observer.observe(visibilityTarget);
     return () => observer.disconnect();
@@ -182,14 +328,12 @@ export default function AxonParticleField({
     const onPointerMove = (event: PointerEvent) => {
       const width = Math.max(window.innerWidth, 1);
       const height = Math.max(window.innerHeight, 1);
-      const nextX = (event.clientX / width - 0.5) * 2;
-      const nextY = (event.clientY / height - 0.5) * -2;
-      const deltaX = event.clientX - lastX;
-      const deltaY = event.clientY - lastY;
-
-      targetPointerRef.current.x = nextX;
-      targetPointerRef.current.y = nextY;
-      pointerVelocityRef.current = Math.min(Math.hypot(deltaX, deltaY) / 36, 1);
+      targetPointerRef.current.x = (event.clientX / width - 0.5) * 2;
+      targetPointerRef.current.y = (event.clientY / height - 0.5) * -2;
+      pointerVelocityRef.current = Math.min(
+        Math.hypot(event.clientX - lastX, event.clientY - lastY) / 30,
+        1,
+      );
       pointerActiveRef.current = true;
       lastX = event.clientX;
       lastY = event.clientY;
@@ -222,7 +366,7 @@ export default function AxonParticleField({
       const height = Math.max(1, container.clientHeight);
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
       const isNarrow = width < 640;
-      const density = isNarrow ? 0.55 : width < 1024 ? 0.78 : 1;
+      const density = isNarrow ? 0.5 : width < 1024 ? 0.75 : 1;
 
       renderer = new THREE.WebGLRenderer({
         canvas,
@@ -232,64 +376,96 @@ export default function AxonParticleField({
       });
       renderer.setPixelRatio(pixelRatio);
       renderer.setSize(width, height);
-      renderer.setClearColor("#050608", 0);
+      renderer.setClearColor(OBSIDIAN, 1);
 
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 100);
-      camera.position.set(0, 0, 6.4);
+      camera.position.set(0, 0, 6.3);
       camera.lookAt(0, 0, 0);
 
-      const starGeometry = createStarField(
-        Math.max(900, Math.floor(particleCount * density)),
-        width / height,
+      const ribbonGeometry = createRibbonGeometry(
+        isNarrow ? 150 : 260,
+        isNarrow ? 20 : 36,
       );
-      const starPositions = new Float32Array(
-        (starGeometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array,
-      );
-      const stars = new THREE.Points(
-        starGeometry,
-        new THREE.PointsMaterial({
-          size: 0.014,
-          vertexColors: true,
-          transparent: true,
-          opacity: 0.78,
-          sizeAttenuation: true,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        }),
-      );
-      scene.add(stars);
+      const ribbonMaterial = new THREE.ShaderMaterial({
+        vertexShader: RIBBON_VERTEX_SHADER,
+        fragmentShader: RIBBON_FRAGMENT_SHADER,
+        uniforms: {
+          uTime: { value: 0 },
+          uPointer: { value: new THREE.Vector2(0, 0) },
+          uPointerInfluence: { value: 0 },
+          uPointerSpeed: { value: 0 },
+          uAspect: { value: width / height },
+          uCameraPos: { value: new THREE.Vector3(0, 0, 6.3) },
+        },
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        blending: THREE.NormalBlending,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      });
+      const ribbon = new THREE.Mesh(ribbonGeometry, ribbonMaterial);
+      ribbon.frustumCulled = false;
+      scene.add(ribbon);
 
-      const filamentGroup = new THREE.Group();
-      const filaments: Filament[] = [];
-      const materials: THREE.LineBasicMaterial[] = [];
-      const filamentCount = width < 640 ? 20 : 34;
-      const pointCount = width < 640 ? 300 : 440;
+      const particleGeometry = new THREE.BufferGeometry();
+      const pCount = Math.max(400, Math.floor(particleCount * density));
+      const positions = new Float32Array(pCount * 3);
+      const basePositions = new Float32Array(pCount * 3);
+      const colors = new Float32Array(pCount * 3);
+      const sizes = new Float32Array(pCount);
+      const phases = new Float32Array(pCount);
 
-      for (let index = 0; index < filamentCount; index++) {
-        for (let strand = 0; strand < 3; strand++) {
-          const geometry = createFilamentGeometry(index, strand, pointCount);
-          const basePositions = (geometry.getAttribute("position") as THREE.BufferAttribute)
-            .array as Float32Array;
-          const positions = new Float32Array(basePositions);
-          const color = new THREE.Color(PALETTE[(index + strand) % PALETTE.length]);
-          const material = new THREE.LineBasicMaterial({
-            color,
-            transparent: true,
-            opacity: strand === 1 ? 0.36 : 0.18,
-            depthWrite: false,
-            depthTest: false,
-            blending: THREE.AdditiveBlending,
-            toneMapped: false,
-          });
-          const line = new THREE.Line(geometry, material);
-          line.frustumCulled = false;
-          filamentGroup.add(line);
-          filaments.push({ geometry, positions, phase: index * 0.63 + strand * 1.7, material });
-          materials.push(material);
-        }
+      const cyan = new THREE.Color(CYAN_RIM);
+      const silver = new THREE.Color(SILVER_HIGHLIGHT);
+      const violet = new THREE.Color(VIOLET_RIM);
+
+      for (let i = 0; i < pCount; i++) {
+        const x = (Math.random() - 0.5) * (width / height) * 9.0;
+        const y = (Math.random() - 0.5) * 5.0;
+        const z = -0.6 - Math.random() * 2.4;
+        positions[i * 3] = x;
+        positions[i * 3 + 1] = y;
+        positions[i * 3 + 2] = z;
+        basePositions[i * 3] = x;
+        basePositions[i * 3 + 1] = y;
+        basePositions[i * 3 + 2] = z;
+
+        const r = Math.random();
+        const color = r < 0.45 ? silver.clone() : r < 0.75 ? cyan.clone() : violet.clone();
+        colors[i * 3] = color.r;
+        colors[i * 3 + 1] = color.g;
+        colors[i * 3 + 2] = color.b;
+        sizes[i] = 0.8 + Math.random() * 1.0;
+        phases[i] = Math.random() * 6.283;
       }
-      scene.add(filamentGroup);
+
+      particleGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      particleGeometry.setAttribute("aBasePos", new THREE.BufferAttribute(basePositions, 3));
+      particleGeometry.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
+      particleGeometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
+      particleGeometry.setAttribute("aPhase", new THREE.BufferAttribute(phases, 1));
+
+      const particleMaterial = new THREE.ShaderMaterial({
+        vertexShader: PARTICLE_VERTEX_SHADER,
+        fragmentShader: PARTICLE_FRAGMENT_SHADER,
+        uniforms: {
+          uTime: { value: 0 },
+          uPointer: { value: new THREE.Vector2(0, 0) },
+          uPointerInfluence: { value: 0 },
+          uPointerSpeed: { value: 0 },
+          uAspect: { value: width / height },
+        },
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      });
+      const particles = new THREE.Points(particleGeometry, particleMaterial);
+      particles.frustumCulled = false;
+      scene.add(particles);
 
       const render = () => renderer?.render(scene, camera);
       let elapsed = 0;
@@ -309,71 +485,34 @@ export default function AxonParticleField({
         const delta = Math.min((time - lastTime) / 1000, 0.05);
         lastTime = time;
         elapsed += delta;
-        pointerX += (targetPointerRef.current.x - pointerX) * 0.07;
-        pointerY += (targetPointerRef.current.y - pointerY) * 0.07;
-        pointerInfluence += ((pointerActiveRef.current ? 1 : 0) - pointerInfluence) * 0.07;
+        pointerX += (targetPointerRef.current.x - pointerX) * 0.06;
+        pointerY += (targetPointerRef.current.y - pointerY) * 0.06;
+        pointerInfluence += ((pointerActiveRef.current ? 1 : 0) - pointerInfluence) * 0.06;
         pointerVelocityRef.current *= 0.9;
 
-        filamentGroup.rotation.z = Math.sin(elapsed * 0.12) * 0.08;
-        filamentGroup.rotation.x = pointerY * 0.055 + Math.sin(elapsed * 0.16) * 0.025;
-        filamentGroup.rotation.y = pointerX * 0.055 + Math.cos(elapsed * 0.13) * 0.025;
-        filamentGroup.position.x = pointerX * 0.12;
-        filamentGroup.position.y = pointerY * 0.08;
-        stars.rotation.z = elapsed * 0.002;
-        camera.position.x += (pointerX * 0.08 - camera.position.x) * 0.012;
-        camera.position.y += (pointerY * 0.06 - camera.position.y) * 0.012;
-        camera.lookAt(0, 0, 0);
-
-        const worldHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
-        const cursorWorldX = pointerX * worldHeight * camera.aspect * 0.5;
-        const cursorWorldY = pointerY * worldHeight * 0.5;
-        const pointerSpeed = pointerVelocityRef.current;
-        const starPositionAttribute = starGeometry.getAttribute("position") as THREE.BufferAttribute;
-        for (let vertex = 0; vertex < starPositions.length; vertex += 3) {
-          const x = starPositions[vertex];
-          const y = starPositions[vertex + 1];
-          const deltaX = cursorWorldX - x;
-          const deltaY = cursorWorldY - y;
-          const attraction = Math.exp(-(deltaX * deltaX + deltaY * deltaY) / 0.9) * pointerInfluence;
-          const twist = attraction * (0.025 + pointerSpeed * 0.05);
-          starPositionAttribute.array[vertex] = x + deltaX * attraction * 0.08 - deltaY * twist;
-          starPositionAttribute.array[vertex + 1] = y + deltaY * attraction * 0.08 + deltaX * twist;
+        for (const material of [ribbonMaterial, particleMaterial]) {
+          (material.uniforms.uTime as { value: number }).value = elapsed;
+          (material.uniforms.uPointer as { value: THREE.Vector2 }).value.set(pointerX, pointerY);
+          (material.uniforms.uPointerInfluence as { value: number }).value = pointerInfluence;
+          (material.uniforms.uPointerSpeed as { value: number }).value = pointerVelocityRef.current;
         }
-        starPositionAttribute.needsUpdate = true;
 
-        filaments.forEach(({ geometry, positions, phase, material }, filamentIndex) => {
-          const attribute = geometry.getAttribute("position") as THREE.BufferAttribute;
-          let localMagneticGlow = 0;
-          for (let vertex = 0; vertex < positions.length; vertex += 3) {
-            const x = positions[vertex];
-            const y = positions[vertex + 1];
-            const z = positions[vertex + 2];
-            const deltaX = cursorWorldX - x;
-            const deltaY = cursorWorldY - y;
-            const distanceSquared = deltaX * deltaX + deltaY * deltaY;
-            const magneticPull = Math.exp(-distanceSquared / 1.25) * pointerInfluence;
-            localMagneticGlow = Math.max(localMagneticGlow, magneticPull);
-            const vortexTwist = magneticPull * (0.08 + pointerSpeed * 0.14);
-            const organicX = Math.sin(elapsed * 0.42 + phase + y) * 0.018;
-            const organicY = Math.cos(elapsed * 0.36 + phase + x) * 0.018;
+        ribbon.rotation.z = -0.28 + Math.sin(elapsed * 0.14) * 0.03;
+        ribbon.rotation.x = 0.18 + pointerY * 0.035 + Math.sin(elapsed * 0.11) * 0.01;
+        ribbon.rotation.y = -0.22 + pointerX * 0.035 + Math.cos(elapsed * 0.09) * 0.01;
+        ribbon.position.x = 1.35 + pointerX * 0.06;
+        ribbon.position.y = -0.15 + pointerY * 0.03;
 
-            attribute.array[vertex] = x + organicX + deltaX * magneticPull * 0.17 - deltaY * vortexTwist;
-            attribute.array[vertex + 1] = y + organicY + deltaY * magneticPull * 0.17 + deltaX * vortexTwist;
-            attribute.array[vertex + 2] = z + Math.sin(elapsed * 0.5 + phase + x * 1.8) * 0.075 + magneticPull * (0.035 + pointerSpeed * 0.08);
-          }
-          attribute.needsUpdate = true;
-          const baseOpacity = (filamentIndex % 3 === 1 ? 0.32 : 0.16) *
-            (0.82 + Math.sin(elapsed * 0.7 + filamentIndex) * 0.18);
-          material.opacity = baseOpacity * (1 + pointerSpeed * localMagneticGlow * 0.75);
-        });
+        camera.position.x += (pointerX * 0.03 - camera.position.x) * 0.008;
+        camera.position.y += (pointerY * 0.02 - camera.position.y) * 0.008;
+        camera.lookAt(0, 0, 0);
+        (ribbonMaterial.uniforms.uCameraPos as { value: THREE.Vector3 }).value.copy(camera.position);
+
         render();
       };
 
-      if (reducedMotion) {
-        render();
-      } else {
-        rafId = requestAnimationFrame(animate);
-      }
+      if (reducedMotion) render();
+      else rafId = requestAnimationFrame(animate);
 
       const onResize = () => {
         const nextWidth = Math.max(1, container.clientWidth);
@@ -381,6 +520,8 @@ export default function AxonParticleField({
         camera.aspect = nextWidth / nextHeight;
         camera.updateProjectionMatrix();
         renderer?.setSize(nextWidth, nextHeight);
+        (ribbonMaterial.uniforms.uAspect as { value: number }).value = nextWidth / nextHeight;
+        (particleMaterial.uniforms.uAspect as { value: number }).value = nextWidth / nextHeight;
         render();
       };
       window.addEventListener("resize", onResize);
@@ -388,10 +529,10 @@ export default function AxonParticleField({
       return () => {
         window.removeEventListener("resize", onResize);
         cancelAnimationFrame(rafId);
-        filaments.forEach(({ geometry }) => geometry.dispose());
-        materials.forEach((material) => material.dispose());
-        starGeometry.dispose();
-        (stars.material as THREE.Material).dispose();
+        ribbonGeometry.dispose();
+        ribbonMaterial.dispose();
+        particleGeometry.dispose();
+        particleMaterial.dispose();
         renderer?.dispose();
       };
     } catch (error) {
@@ -421,36 +562,9 @@ export default function AxonParticleField({
             className="absolute inset-0"
             style={{
               backgroundImage:
-                "radial-gradient(1px 1px at 6% 14%, rgba(232,244,255,.84) 55%, transparent 100%), radial-gradient(1px 1px at 18% 72%, rgba(56,189,248,.75) 55%, transparent 100%), radial-gradient(1px 1px at 31% 42%, rgba(232,244,255,.64) 55%, transparent 100%), radial-gradient(1px 1px at 47% 9%, rgba(45,212,191,.7) 55%, transparent 100%), radial-gradient(1px 1px at 67% 78%, rgba(192,132,252,.72) 55%, transparent 100%), radial-gradient(1px 1px at 83% 27%, rgba(232,244,255,.78) 55%, transparent 100%), radial-gradient(1px 1px at 94% 66%, rgba(56,189,248,.68) 55%, transparent 100%), radial-gradient(ellipse at 52% 48%, rgba(56,189,248,.1), transparent 48%), radial-gradient(ellipse at 56% 50%, rgba(168,85,247,.09), transparent 58%)",
+                "radial-gradient(1px 1px at 6% 14%, rgba(232,244,255,.84) 55%, transparent 100%), radial-gradient(1px 1px at 18% 72%, rgba(56,189,248,.75) 55%, transparent 100%), radial-gradient(1px 1px at 31% 42%, rgba(232,244,255,.64) 55%, transparent 100%), radial-gradient(1px 1px at 47% 9%, rgba(45,212,191,.7) 55%, transparent 100%), radial-gradient(1px 1px at 67% 78%, rgba(192,132,252,.72) 55%, transparent 100%), radial-gradient(1px 1px at 83% 27%, rgba(232,244,255,.78) 55%, transparent 100%), radial-gradient(ellipse at 52% 48%, rgba(56,189,248,.06), transparent 48%)",
             }}
           />
-          <svg
-            className="absolute inset-0 h-full w-full"
-            viewBox="0 0 1000 600"
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <defs>
-              <filter id="axon-fallback-glow" x="-30%" y="-30%" width="160%" height="160%">
-                <feGaussianBlur stdDeviation="3.5" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            {FALLBACK_FILAMENTS.map((filament, index) => (
-              <g key={index} fill="none" stroke={filament.color} strokeLinecap="round">
-                <path
-                  d={filament.path}
-                  strokeWidth="3.2"
-                  opacity={filament.opacity * 0.22}
-                  filter="url(#axon-fallback-glow)"
-                />
-                <path d={filament.path} strokeWidth="0.8" opacity={filament.opacity} />
-              </g>
-            ))}
-          </svg>
         </div>
       ) : (
         <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: "100%" }} />

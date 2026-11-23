@@ -17,7 +17,7 @@ import {
   MagneticButton,
   ScrambleText,
 } from "../components/motion";
-import AxonParticleCanvas from "../components/motion/AxonParticleCanvas";
+import AxonParticleField from "../components/motion/AxonParticleField";
 
 /* ============================================================================
    DeepForge — Home
@@ -371,7 +371,7 @@ export default function Home() {
       {typeof document !== "undefined" &&
         createPortal(
           <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
-            <AxonParticleCanvas />
+            <AxonParticleField particleCount={2200} />
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(5,6,8,0.48)_0%,rgba(5,6,8,0.54)_42%,rgba(5,6,8,0.78)_72%,rgba(5,6,8,0.94)_100%)]" />
             <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-bg-0 via-bg-0/60 to-transparent" />
           </div>,
