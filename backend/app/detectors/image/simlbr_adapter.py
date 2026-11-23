@@ -60,12 +60,53 @@ class SimLBRAdapter(ImageDetector):
                     sys.path.insert(0, candidate_str)
                 return
 
+    def _patch_dinov3_backbone(self) -> None:
+        """Use a public transformers DINOv3 mirror when official gated weights are unavailable."""
+        import os
+
+        if os.environ.get("DINO_V3_KEY"):
+            return
+        try:
+            import simlbr.backbones as backbones
+
+            if getattr(backbones, "_deepforge_patched", False):
+                return
+
+            import torch.nn as nn
+            from transformers import AutoModel
+
+            class _TransformersDINOv3Wrapper(nn.Module):
+                def __init__(self, model):
+                    super().__init__()
+                    self.model = model
+
+                def forward_features(self, x):
+                    outputs = self.model(pixel_values=x)
+                    cls_token = outputs.pooler_output
+                    if cls_token is None:
+                        cls_token = outputs.last_hidden_state[:, 0]
+                    return {"x_norm_clstoken": cls_token}
+
+            def _get_dinov3():
+                hf_model = os.environ.get(
+                    "SIMLBR_DINOV3_MODEL",
+                    "samttran/dinov3-vitl16-pretrain-lvd1689m",
+                )
+                model = AutoModel.from_pretrained(hf_model)
+                return _TransformersDINOv3Wrapper(model), 1024
+
+            backbones.get_dinov3 = _get_dinov3
+            backbones._deepforge_patched = True
+        except Exception as exc:
+            logger.warning("Could not patch SimLBR DINOv3 backbone: %s", exc)
+
     def load(self) -> None:
         """Load SimLBR model and transform."""
         if self._load_attempted:
             return
         try:
             self._ensure_simlbr_importable()
+            self._patch_dinov3_backbone()
             from simlbr import SimLBR
             from simlbr.utils import make_dinov3_transform
 

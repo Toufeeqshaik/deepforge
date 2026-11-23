@@ -49,6 +49,24 @@ MODEL_REGISTRY: list[dict[str, Any]] = [
         "loader": "simlbr",
     },
     {
+        "name": "SimLBR-genimage",
+        "hf_model_id": None,
+        "enabled": True,
+        "pretrained": "genimage",
+        "targets": [
+            "AI-Generated",
+            "GenImage",
+            "Diffusion",
+            "GAN",
+        ],
+        "preprocessing": {
+            "resize": (256, 256),
+            "normalize": "dinov3",
+        },
+        "fake_label": 1,
+        "loader": "simlbr",
+    },
+    {
         # ----------------------------------------------------------------
         # EfficientNet-B0 fine-tuned on FaceForensics++ C23
         # Source: https://huggingface.co/Xicor9/efficientnet-b0-ffpp-c23
