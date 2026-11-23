@@ -53,6 +53,9 @@ class ImageDetectionService:
                 elif loader_type == "smaug_detector":
                     from app.detectors.image.smaug_adapter import SmaugImageDetectorAdapter
                     detector = SmaugImageDetectorAdapter(entry)
+                elif loader_type == "simlbr":
+                    from app.detectors.image.simlbr_adapter import SimLBRAdapter
+                    detector = SimLBRAdapter(entry)
                 elif loader_type == "transformers_convnext":
                     detector = TransformersAdapter(entry)
                 else:

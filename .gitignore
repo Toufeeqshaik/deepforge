@@ -65,3 +65,6 @@ backend/reports/*.pdf
 backend/reports/*.html
 # Test data
 test_data/
+
+# Third-party model repos
+backend/third_party/

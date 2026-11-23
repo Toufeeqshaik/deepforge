@@ -27,12 +27,36 @@ from typing import Any
 MODEL_REGISTRY: list[dict[str, Any]] = [
     {
         # ----------------------------------------------------------------
+        # SimLBR — Latent Blending Regularization (CVPR 2026)
+        # Source: https://github.com/mvrl/SimLBR
+        # Detects: AI-generated images (AIGC / GenImage pretrained variants)
+        # ----------------------------------------------------------------
+        "name": "SimLBR-aigc",
+        "hf_model_id": None,
+        "enabled": True,
+        "pretrained": "aigc",
+        "targets": [
+            "AI-Generated",
+            "AIGC",
+            "Diffusion",
+            "GAN",
+        ],
+        "preprocessing": {
+            "resize": (256, 256),
+            "normalize": "dinov3",
+        },
+        "fake_label": 1,
+        "loader": "simlbr",
+    },
+    {
+        # ----------------------------------------------------------------
         # EfficientNet-B0 fine-tuned on FaceForensics++ C23
         # Source: https://huggingface.co/Xicor9/efficientnet-b0-ffpp-c23
         # Detects: face-swap deepfakes (video-origin manipulations)
         # ----------------------------------------------------------------
         "name": "Xicor9/efficientnet-b0-ffpp-c23",
         "hf_model_id": "Xicor9/efficientnet-b0-ffpp-c23",
+        "enabled": False,
         "targets": [
             "DeepFake",       # deep-learning face swap
             "FaceSwap",       # automated face replacement
@@ -54,7 +78,7 @@ MODEL_REGISTRY: list[dict[str, Any]] = [
         # ----------------------------------------------------------------
         "name": "abacusai/Smaug-AI-Image-Detector",
         "hf_model_id": "abacusai/Smaug-AI-Image-Detector",
-        "enabled": True,
+        "enabled": False,
         "targets": [
             "AI-Generated",
             "Midjourney",
