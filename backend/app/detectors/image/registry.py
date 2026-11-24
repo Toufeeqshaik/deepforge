@@ -71,10 +71,11 @@ MODEL_REGISTRY: list[dict[str, Any]] = [
         # EfficientNet-B0 fine-tuned on FaceForensics++ C23
         # Source: https://huggingface.co/Xicor9/efficientnet-b0-ffpp-c23
         # Detects: face-swap deepfakes (video-origin manipulations)
+        # DISABLED: Poor judgement on general images, conflicts with SimLBR
         # ----------------------------------------------------------------
         "name": "Xicor9/efficientnet-b0-ffpp-c23",
         "hf_model_id": "Xicor9/efficientnet-b0-ffpp-c23",
-        "enabled": True,
+        "enabled": False,
         "targets": [
             "DeepFake",       # deep-learning face swap
             "FaceSwap",       # automated face replacement

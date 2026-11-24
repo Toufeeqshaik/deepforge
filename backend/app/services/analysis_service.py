@@ -137,7 +137,7 @@ class AnalysisService:
             image = Image.open(file_path)
             score = detection_service.detect(image)
 
-            # Determine overall verdict using improved multi-model ensemble judgment
+            # Determine overall verdict using SimLBR dual-model ensemble judgment
             # Get per-model results from detection service
             per_model = score.get("per_model_results", [])
             
@@ -158,67 +158,30 @@ class AnalysisService:
                     }
             
             # Model-specific calibration adjustments
-            # SimLBR models are known to over-flag non-face real images → apply strong negative offsets
-            # EfficientNet-B0 is face-swap specific → only trust high scores when faces detected
+            # SimLBR models are known to over-flag non-face real images → apply very strong negative offsets
+            # Raw scores on non-AI content often exceed 0.95; offsets must be aggressive
             calibrated_scores = {}
             model_weights = {}
             
             for name, data in model_data.items():
                 raw_conf = data["confidence"]
-                targets = data.get("targets", [])
                 
                 if "SimLBR-aigc" in name:
-                    # AIGC model: known to over-flag on non-AI content
-                    # Apply moderate offset to reduce false positives
-                    calibrated_scores[name] = max(0.0, raw_conf - 0.25)
-                    model_weights[name] = 0.7  # Lower weight due to over-flagging tendency
+                    # AIGC model: known to severely over-flag on non-AI content
+                    # Apply very aggressive offset to reduce false positives
+                    calibrated_scores[name] = max(0.0, raw_conf - 0.60)
+                    model_weights[name] = 1.0
                 elif "SimLBR-genimage" in name:
                     # GenImage model: strongest over-flagging tendency
-                    # Apply aggressive offset to reduce false positives on real images
-                    calibrated_scores[name] = max(0.0, raw_conf - 0.35)
-                    model_weights[name] = 0.5  # Lowest weight due to known over-flagging
-                elif "efficientnet" in name.lower() or "EfficientNet" in name:
-                    # Face-swap specific model: only high weight if faces likely present
-                    # For general images, use lower weight and require higher threshold
-                    calibrated_scores[name] = raw_conf
-                    model_weights[name] = 0.6  # Moderate weight for face-specific detection
+                    # Apply extreme offset to reduce false positives on real images
+                    calibrated_scores[name] = max(0.0, raw_conf - 0.70)
+                    model_weights[name] = 0.8  # Lower weight due to known over-flagging
                 else:
                     calibrated_scores[name] = raw_conf
                     model_weights[name] = 1.0
             
-            # Filter available scores
+            # Filter available scores (only SimLBR models now)
             available_scores = {k: v for k, v in calibrated_scores.items() if v is not None}
-            
-            # Extract raw scores for cross-model validation
-            simlbr_aigc_raw = next((data["confidence"] for name, data in model_data.items() if "SimLBR-aigc" in name), None)
-            simlbr_genimage_raw = next((data["confidence"] for name, data in model_data.items() if "SimLBR-genimage" in name), None)
-            efficientnet_raw = next((data["confidence"] for name, data in model_data.items() if "efficientnet" in name.lower() or "EfficientNet" in name), None)
-            
-            # Cross-model validation: If SimLBR scores are very high but EfficientNet score is low,
-            # it suggests non-photographic content rather than AI generation
-            # (SimLBR detects "non-photo-like", EfficientNet detects "face manipulation")
-            simlbr_avg_raw = 0.0
-            simlbr_count = 0
-            if simlbr_aigc_raw is not None:
-                simlbr_avg_raw += simlbr_aigc_raw
-                simlbr_count += 1
-            if simlbr_genimage_raw is not None:
-                simlbr_avg_raw += simlbr_genimage_raw
-                simlbr_count += 1
-            if simlbr_count > 0:
-                simlbr_avg_raw /= simlbr_count
-            
-            efficientnet_low = efficientnet_raw is not None and efficientnet_raw < 0.55
-            
-            # If SimLBR models flag high but EfficientNet sees no face manipulation,
-            # apply additional penalty to reduce false positives on non-photo images
-            cross_model_penalty = 1.0
-            if simlbr_count >= 2 and simlbr_avg_raw > 0.85 and efficientnet_low:
-                cross_model_penalty = 0.4  # Strong penalty when SimLBR both very high but EfficientNet low
-            elif simlbr_count >= 2 and simlbr_avg_raw > 0.75 and efficientnet_raw is not None and efficientnet_raw < 0.4:
-                cross_model_penalty = 0.6  # Moderate penalty
-            elif simlbr_count >= 1 and simlbr_avg_raw > 0.8 and efficientnet_raw is not None and efficientnet_raw < 0.3:
-                cross_model_penalty = 0.7  # Moderate penalty with one SimLBR model
             
             # Calculate weighted ensemble score
             ensemble_score = None
@@ -227,81 +190,89 @@ class AnalysisService:
                 weighted_sum = sum(
                     v * model_weights.get(k, 1.0) for k, v in available_scores.items()
                 )
-                ensemble_score = (weighted_sum / total_weight) * cross_model_penalty if total_weight > 0 else None
+                ensemble_score = weighted_sum / total_weight if total_weight > 0 else None
+            
+            # RECOMPUTE predictions from CALIBRATED scores (not raw)
+            # Calibrated score >= 0.5 -> "fake", < 0.5 -> "real"
+            # This fixes the issue where raw scores >0.95 caused all "fake" predictions
+            calibrated_predictions = {
+                name: "fake" if score >= 0.5 else "real"
+                for name, score in available_scores.items()
+            }
             
             # Count model predictions (real vs fake) for agreement analysis
             fake_predictions = sum(
-                1 for name, data in model_data.items() 
-                if data["prediction"] == "fake"
+                1 for pred in calibrated_predictions.values() 
+                if pred == "fake"
             )
             real_predictions = sum(
-                1 for name, data in model_data.items() 
-                if data["prediction"] == "real"
+                1 for pred in calibrated_predictions.values() 
+                if pred == "real"
             )
             total_predictions = fake_predictions + real_predictions
             
             # High/low confidence counts on CALIBRATED scores
-            high_confidence_count = sum(1 for v in available_scores.values() if v > 0.6)
-            low_confidence_count = sum(1 for v in available_scores.values() if v < 0.25)
+            high_confidence_count = sum(1 for v in available_scores.values() if v > 0.5)
+            low_confidence_count = sum(1 for v in available_scores.values() if v < 0.2)
             mid_confidence_count = len(available_scores) - high_confidence_count - low_confidence_count
             
-            # Determine verdict using ensemble with tiered thresholds and model agreement
+            # Determine verdict using dual-SimLBR ensemble with tiered thresholds
             if ensemble_score is not None and total_predictions > 0:
                 fake_ratio = fake_predictions / total_predictions
                 real_ratio = real_predictions / total_predictions
                 
                 # STRONG consensus requires BOTH high ensemble score AND model agreement
-                if ensemble_score >= 0.60 and fake_ratio >= 0.67 and high_confidence_count >= 2:
-                    # Strong manipulation signal: high calibrated score + majority fake predictions + multiple high-confidence models
+                if ensemble_score >= 0.55 and fake_ratio >= 0.67 and high_confidence_count >= 2:
+                    # Strong manipulation signal: high calibrated score + both models agree fake
                     verdict = VerdictLevel.LIKELY_MANIPULATED
                     summary = (
-                        "The image shows strong indicators of being AI-generated or "
-                        "manipulated. Multi-model ensemble analysis detected synthetic "
-                        "generation artifacts across multiple high-confidence detectors."
+                        "The image shows strong indicators of being AI-generated. "
+                        "Both SimLBR models (AIGC & GenImage) detected synthetic "
+                        "generation artifacts with high confidence."
                     )
-                elif ensemble_score <= 0.20 and real_ratio >= 0.67 and low_confidence_count >= 2:
-                    # Strong authentic signal: very low calibrated score + majority real predictions + multiple low-confidence models
+                elif ensemble_score <= 0.25 and real_ratio >= 0.67 and low_confidence_count >= 2:
+                    # Strong authentic signal: very low calibrated score + both models agree real
                     verdict = VerdictLevel.LIKELY_AUTHENTIC
                     summary = (
-                        "The image shows no strong indicators of AI-generation, "
-                        "face-swap, or deepfake manipulation across the active detection "
-                        "ensemble. Based on this analysis, it is likely authentic."
+                        "The image shows no strong indicators of AI-generation. "
+                        "Both SimLBR models report low manipulation confidence. "
+                        "Based on this analysis, it is likely authentic."
                     )
-                elif ensemble_score >= 0.45 and fake_ratio > 0.5:
+                elif ensemble_score >= 0.40 and fake_ratio > 0.5:
                     # Moderate manipulation signal with model agreement leaning fake
                     verdict = VerdictLevel.POTENTIALLY_MANIPULATED
                     summary = (
-                        "The image shows moderate indicators of potential manipulation. "
-                        "The ensemble leans toward synthetic content, but confidence "
+                        "The image shows moderate indicators of potential AI generation. "
+                        "The SimLBR ensemble leans toward synthetic content, but confidence "
                         "is not high enough for a definitive conclusion. Manual review recommended."
                     )
-                elif ensemble_score <= 0.35 and real_ratio > 0.5:
+                elif ensemble_score <= 0.30 and real_ratio > 0.5:
                     # Leaning authentic with model agreement
                     verdict = VerdictLevel.LIKELY_AUTHENTIC
                     summary = (
                         "The image shows no strong indicators of manipulation. "
-                        "The ensemble leans toward authentic content, though some models "
+                        "The SimLBR ensemble leans toward authentic content, though some models "
                         "produced ambiguous signals. Additional verification recommended."
                     )
                 elif fake_ratio >= 0.67 and high_confidence_count >= 1:
                     # Majority fake predictions but moderate ensemble score
                     verdict = VerdictLevel.POTENTIALLY_MANIPULATED
                     summary = (
-                        "A majority of models flagged the image as potentially manipulated, "
+                        "A majority of SimLBR models flagged the image as potentially manipulated, "
                         "but the ensemble confidence is moderate. Further forensic analysis recommended."
                     )
                 elif real_ratio >= 0.67 and low_confidence_count >= 1:
                     # Majority real predictions with low confidence
                     verdict = VerdictLevel.LIKELY_AUTHENTIC
                     summary = (
-                        "A majority of models indicate the image is likely authentic, "
+                        "A majority of SimLBR models indicate the image is likely authentic, "
                         "with low manipulation confidence scores across the ensemble."
                     )
                 else:
                     # Genuine uncertainty: mixed predictions, mid-range scores
                     verdict = VerdictLevel.UNCERTAIN
                     summary = (
-                        "The analysis produced mixed signals across the detector ensemble. "
+                        "The analysis produced mixed signals across the SimLBR detector ensemble. "
                         "Models disagree or report ambiguous confidence levels. "
                         "Evidence is insufficient to confidently determine authenticity. "
                         "Additional forensic analysis recommended."
@@ -322,8 +293,6 @@ class AnalysisService:
                         indicators.append(f"SimLBR (AIGC): {score:.0%} — AI-generated image detection")
                     elif model_name == "SimLBR-genimage":
                         indicators.append(f"SimLBR (GenImage): {score:.0%} — AI-generated image detection")
-                    elif model_name == "EfficientNet-B0":
-                        indicators.append(f"EfficientNet-B0: {score:.0%} — Face-swap/deepfake detection")
             for d in detector_results:
                 if d.raw_score > 0.5 and d.detector_name not in available_scores:
                     indicators.append(
@@ -355,17 +324,14 @@ class AnalysisService:
                     "SimLBR-genimage: Targets AI-generated images (GenImage pretrained, may over-flag some real images)."
                 )
                 limitations.append(
-                    "EfficientNet-B0 (FaceForensics++ C23): Targets facial manipulations & face-swaps; best on face-centric frames."
-                )
-                limitations.append(
-                    "Ensemble score is an average of available model confidences; treat as forensic indicator, not proof."
+                    "Ensemble score is an average of calibrated SimLBR confidences; treat as forensic indicator, not proof."
                 )
                 if high_confidence_count >= 2:
-                    limitations.append("High consensus: Multiple models agree on manipulation indicators.")
+                    limitations.append("High consensus: Both SimLBR models agree on manipulation indicators.")
                 elif low_confidence_count >= 2:
-                    limitations.append("High consensus: Multiple models agree on authenticity indicators.")
+                    limitations.append("High consensus: Both SimLBR models agree on authenticity indicators.")
                 elif high_confidence_count == 1 and low_confidence_count == 1:
-                    limitations.append("Model disagreement: One model flags manipulation, another indicates authentic.")
+                    limitations.append("Model disagreement: One SimLBR model flags manipulation, another indicates authentic.")
 
             elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
 
