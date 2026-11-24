@@ -3,6 +3,8 @@
    ========================================================================== */
 
 export { default as AxonParticleField } from "./AxonParticleField";
+export { default as AxonParticleCanvas } from "./AxonParticleCanvas";
+export { default as FaceParticleMatrix } from "./FaceParticleMatrix";
 export { default as FaceScanVisualization } from "./FaceScanVisualization";
 export { default as GreekMarbleSculpture } from "./GreekMarbleSculpture";
 export { default as RouteTransition, PageTransition } from "./RouteTransition";
