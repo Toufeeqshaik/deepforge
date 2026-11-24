@@ -66,5 +66,5 @@ backend/reports/*.html
 # Test data
 test_data/
 
-# Third-party model repos
-backend/third_party/
+# Third-party model repos (SimLBR source tracked)
+# backend/third_party/
