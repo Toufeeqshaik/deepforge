@@ -12,8 +12,17 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY backend/requirements.txt .
 
-# Install Python dependencies
+# Install Python dependencies (including SimLBR from GitHub)
 RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Pre-download SimLBR models during build to cache them
+RUN python -c "
+from simlbr import SimLBR
+for model in ['aigc', 'genimage']:
+    print(f'Downloading SimLBR-{model}...')
+    SimLBR.from_pretrained(model)
+    print(f'SimLBR-{model} cached successfully')
+" 2>&1 | tee /tmp/model_download.log || echo "Model download had issues, will retry at runtime"
 
 # Production stage
 FROM python:3.12-slim

@@ -1,9 +1,3 @@
 #!/bin/sh
-# Install SimLBR if not already present
-if ! python -c "import simlbr" 2>/dev/null; then
-    echo "Installing SimLBR from GitHub..."
-    pip install git+https://github.com/mvrl/SimLBR.git
-fi
-
-# Start the app
+# Start the app - SimLBR and models are pre-installed during Docker build
 exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
