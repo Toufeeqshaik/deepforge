@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: deepforge-backend
+    env: docker
+    rootDir: .
+    dockerContext: .
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: DEEPFORGE_CORS_ORIGINS
+        value: https://deepforge-pmvh.vercel.app
+      - key: DEEPFORGE_DEBUG
+        value: false
+      - key: DEEPFORGE_MODEL_DEVICE
+        value: cpu

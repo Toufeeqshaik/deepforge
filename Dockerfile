@@ -1,4 +1,4 @@
-# DeepForge Backend - Railway Deployment (minimal, crash-proof)
+# DeepForge Backend - Nimbus Deployment (crash-proof with SimLBR)
 FROM python:3.12-slim
 
 # Install system dependencies
@@ -20,6 +20,9 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# Copy SimLBR source (from git repository)
+COPY backend/third_party/SimLBR/ /app/backend/third_party/SimLBR/
+
 # Copy application code
 COPY backend/app ./app
 
@@ -30,7 +33,10 @@ RUN mkdir -p uploads temp reports
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
-# Expose port (Railway sets $PORT)
+# Set Python path to include SimLBR
+ENV PYTHONPATH=/app/backend/third_party/SimLBR:$PYTHONPATH
+
+# Expose port (Nimbus sets $PORT)
 EXPOSE $PORT
 
 # Run the application
