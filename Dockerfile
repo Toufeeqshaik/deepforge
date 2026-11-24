@@ -15,10 +15,13 @@ COPY backend/requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir --user -r requirements.txt
 
+# Download SimLBR models during build to cache them
+RUN python -c "from simlbr import SimLBR; [SimLBR.from_pretrained(m) for m in ['aigc', 'genimage']]"
+
 # Production stage
 FROM python:3.12-slim
 
-# Install runtime dependencies (no GL libs needed - we use opencv-python-headless)
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libsm6 \
