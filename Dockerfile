@@ -15,9 +15,6 @@ COPY backend/requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir --user -r requirements.txt
 
-# Download SimLBR models during build to cache them
-RUN python -c "from simlbr import SimLBR; [SimLBR.from_pretrained(m) for m in ['aigc', 'genimage']]"
-
 # Production stage
 FROM python:3.12-slim
 

@@ -16,8 +16,7 @@ transformers==5.23.0
 sentence-transformers==6.3.0
 
 # SimLBR (CVPR 2026 AI-generated image detector)
-# Install from GitHub: pip install git+https://github.com/mvrl/SimLBR.git
-# Note: SimLBR requires DINOv3 backbone which needs transformers
+git+https://github.com/mvrl/SimLBR.git
 
 # Video / audio processing
 opencv-python-headless==5.0.0.93
