@@ -68,7 +68,7 @@ export default function FaceScanVisualization({
 
     // Head geometry - simplified face mesh
     const headGeometry = new THREE.SphereGeometry(1.0, 48, 36);
-    
+
     // Morph to face-like shape
     const posAttr = headGeometry.getAttribute("position");
     const temp = new THREE.Vector3();
