@@ -74,7 +74,7 @@ MODEL_REGISTRY: list[dict[str, Any]] = [
         # ----------------------------------------------------------------
         "name": "Xicor9/efficientnet-b0-ffpp-c23",
         "hf_model_id": "Xicor9/efficientnet-b0-ffpp-c23",
-        "enabled": False,
+        "enabled": True,
         "targets": [
             "DeepFake",       # deep-learning face swap
             "FaceSwap",       # automated face replacement

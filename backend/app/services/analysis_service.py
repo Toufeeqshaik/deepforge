@@ -132,51 +132,118 @@ class AnalysisService:
             detector_results = self._run_image_detectors(file_path)
             report.detector_results = detector_results
 
-            # Determine overall verdict using combined score from multi-model detection
-            first_res = detector_results[0] if detector_results else None
-            combined_score = (
-                first_res.details.get("combined_score")
-                if first_res and first_res.details
-                else None
-            )
-            combined_v = (
-                first_res.details.get("combined_verdict")
-                if first_res and first_res.details
-                else "inconclusive"
-            )
+            # Get full detection score for ensemble judgment
+            from PIL import Image
+            image = Image.open(file_path)
+            score = detection_service.detect(image)
 
-            if combined_v == "likely_manipulated":
-                verdict = VerdictLevel.LIKELY_MANIPULATED
-                summary = (
-                    "The image shows strong indicators of being AI-generated or "
-                    "manipulated. Multi-model analysis detected synthetic generation "
-                    "or deepfake artifacts."
-                )
-            elif combined_v == "likely_authentic":
-                verdict = VerdictLevel.LIKELY_AUTHENTIC
-                summary = (
-                    "The image shows no strong indicators of AI-generation or "
-                    "face-swap manipulation across the active detection models. "
-                    "Based on this analysis, it is likely authentic."
-                )
-            elif combined_v == "uncertain":
-                verdict = VerdictLevel.UNCERTAIN
-                summary = (
-                    "The analysis could not confidently determine authenticity. "
-                    "Evidence is mixed or inconclusive across the available models."
-                )
+            # Determine overall verdict using improved multi-model ensemble judgment
+            # Get per-model results from detection service
+            per_model = score.get("per_model_results", [])
+            
+            # Extract individual model scores and verdicts
+            simlbr_aigc_score = None
+            simlbr_genimage_score = None
+            efficientnet_score = None
+            available_models = []
+            
+            for mres in per_model:
+                name = mres.get("model_name", "")
+                conf = mres.get("confidence")
+                if conf is not None:
+                    available_models.append(name)
+                    if "SimLBR-aigc" in name:
+                        simlbr_aigc_score = conf
+                    elif "SimLBR-genimage" in name:
+                        simlbr_genimage_score = conf
+                    elif "efficientnet" in name.lower() or "EfficientNet" in name:
+                        efficientnet_score = conf
+            
+            # Improved ensemble logic:
+            # - SimLBR models: AI-generated/manipulated image detection (AIGC & GenImage)
+            # - EfficientNet-B0: Face-swap/deepfake detection (FaceForensics++)
+            # Weight SimLBR models higher for general AI detection, EfficientNet for face-specific
+            
+            model_scores = {
+                "SimLBR-aigc": simlbr_aigc_score,
+                "SimLBR-genimage": simlbr_genimage_score,
+                "EfficientNet-B0": efficientnet_score,
+            }
+            
+            # Filter available scores
+            available_scores = {k: v for k, v in model_scores.items() if v is not None}
+            
+            # Calculate weighted ensemble score
+            # SimLBR models: weight 1.0 each (general AI synthesis detection)
+            # EfficientNet-B0: weight 1.0 (face-swap specific)
+            # Combined = average of available
+            ensemble_score = None
+            if available_scores:
+                ensemble_score = sum(available_scores.values()) / len(available_scores)
+            
+            # Determine verdict using ensemble with tiered thresholds
+            # Also consider model agreement/disagreement
+            high_confidence_count = sum(1 for v in available_scores.values() if v > 0.7)
+            low_confidence_count = sum(1 for v in available_scores.values() if v < 0.3)
+            mid_confidence_count = len(available_scores) - high_confidence_count - low_confidence_count
+            
+            # Strong consensus thresholds
+            if ensemble_score is not None:
+                if ensemble_score >= 0.65 or high_confidence_count >= 2:
+                    # Strong manipulation signal from multiple models
+                    verdict = VerdictLevel.LIKELY_MANIPULATED
+                    summary = (
+                        "The image shows strong indicators of being AI-generated or "
+                        "manipulated. Multi-model ensemble analysis detected synthetic "
+                        "generation artifacts across multiple detectors."
+                    )
+                elif ensemble_score <= 0.35 or low_confidence_count >= 2:
+                    # Strong authentic signal from multiple models
+                    verdict = VerdictLevel.LIKELY_AUTHENTIC
+                    summary = (
+                        "The image shows no strong indicators of AI-generation, "
+                        "face-swap, or deepfake manipulation across the active detection "
+                        "ensemble. Based on this analysis, it is likely authentic."
+                    )
+                elif ensemble_score >= 0.5 or high_confidence_count == 1:
+                    # Moderate manipulation signal
+                    verdict = VerdictLevel.POTENTIALLY_MANIPULATED
+                    summary = (
+                        "The image shows moderate indicators of potential manipulation. "
+                        "One or more models detected suspicious patterns, but confidence "
+                        "is not high enough for a definitive conclusion. Manual review recommended."
+                    )
+                elif ensemble_score <= 0.5 and mid_confidence_count > 0:
+                    # Uncertain/mixed signals
+                    verdict = VerdictLevel.UNCERTAIN
+                    summary = (
+                        "The analysis produced mixed signals across the detector ensemble. "
+                        "Evidence is insufficient to confidently determine authenticity. "
+                        "Additional forensic analysis recommended."
+                    )
+                else:
+                    verdict = VerdictLevel.INCONCLUSIVE
+                    summary = "Analysis inconclusive — insufficient model agreement."
             else:
                 verdict = VerdictLevel.INCONCLUSIVE
-                summary = "Analysis inconclusive."
+                summary = "No detection models available for analysis."
 
             # Build forensic indicators list
             indicators = []
-            if combined_score is not None and combined_score > 0.5:
+            if ensemble_score is not None:
                 indicators.append(
-                    f"Overall consensus AI probability: {combined_score:.0%}"
+                    f"Ensemble AI probability: {ensemble_score:.0%} (from {len(available_scores)} models)"
                 )
+                # Show individual model contributions
+                for model_name, score in available_scores.items():
+                    if model_name == "SimLBR-aigc":
+                        indicators.append(f"SimLBR (AIGC): {score:.0%} — AI-generated image detection")
+                    elif model_name == "SimLBR-genimage":
+                        indicators.append(f"SimLBR (GenImage): {score:.0%} — AI-generated image detection")
+                    elif model_name == "EfficientNet-B0":
+                        indicators.append(f"EfficientNet-B0: {score:.0%} — Face-swap/deepfake detection")
             for d in detector_results:
-                if d.raw_score > 0.5:
+                if d.raw_score > 0.5 and d.detector_name not in available_scores:
                     indicators.append(
                         f"{d.detector_name}: {d.raw_score:.0%} synthetic probability"
                     )
@@ -200,11 +267,23 @@ class AnalysisService:
                 if model_names:
                     limitations.append(f"Active detection ensemble: {', '.join(model_names)}.")
                 limitations.append(
-                    "SimLBR detectors target AI-generated/manipulated image signals (AIGC and GenImage variants)."
+                    "SimLBR-aigc: Targets AI-generated images (AIGC pretrained, CVPR 2026 latent blending regularization)."
                 )
                 limitations.append(
-                    "Combined score is an average of available model scores; treat as forensic indicator, not proof."
+                    "SimLBR-genimage: Targets AI-generated images (GenImage pretrained, may over-flag some real images)."
                 )
+                limitations.append(
+                    "EfficientNet-B0 (FaceForensics++ C23): Targets facial manipulations & face-swaps; best on face-centric frames."
+                )
+                limitations.append(
+                    "Ensemble score is an average of available model confidences; treat as forensic indicator, not proof."
+                )
+                if high_confidence_count >= 2:
+                    limitations.append("High consensus: Multiple models agree on manipulation indicators.")
+                elif low_confidence_count >= 2:
+                    limitations.append("High consensus: Multiple models agree on authenticity indicators.")
+                elif high_confidence_count == 1 and low_confidence_count == 1:
+                    limitations.append("Model disagreement: One model flags manipulation, another indicates authentic.")
 
             elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
 

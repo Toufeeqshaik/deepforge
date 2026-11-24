@@ -18,7 +18,7 @@ import {
   ScrambleText,
 } from "../components/motion";
 import AxonParticleField from "../components/motion/AxonParticleField";
-import FaceScanVisualization from "../components/motion/FaceScanVisualization";
+import GreekMarbleSculpture from "../components/motion/GreekMarbleSculpture";
 
 /* ============================================================================
    DeepForge — Home
@@ -499,7 +499,7 @@ export default function Home() {
             </div>
 
             <div className="lg:col-span-5 mt-20 lg:mt-0">
-              <FaceScanVisualization className="animate-slide-up-fade" />
+              <GreekMarbleSculpture className="animate-slide-up-fade" />
             </div>
           </div>
 
