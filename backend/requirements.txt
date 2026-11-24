@@ -1,5 +1,5 @@
 # DeepForge Backend Dependencies
-# Tested on Python 3.12 — all versions have cp312 wheels
+# All versions verified on PyPI
 
 fastapi==0.163.1
 uvicorn[standard]==0.54.0
@@ -14,10 +14,6 @@ torch==2.15.0
 torchvision==0.29.2
 transformers==5.23.0
 sentence-transformers==6.3.0
-
-# SimLBR dependencies (needed by simlbr package)
-huggingface_hub==0.38.2
-safetensors==6.0.1
 
 # Video / audio processing
 opencv-python-headless==5.0.0.93
