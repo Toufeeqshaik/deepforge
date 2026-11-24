@@ -55,4 +55,4 @@ RUN chmod +x /app/start.sh
 EXPOSE $PORT
 
 # Run the application
-CMD ["/app/start.sh"]
+CMD [\"/app/start.sh\"]  # Will run with enhanced logging
