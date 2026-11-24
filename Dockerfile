@@ -12,17 +12,28 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY backend/requirements.txt .
 
-# Install Python dependencies (including SimLBR from GitHub)
+# Install Python dependencies
 RUN pip install --no-cache-dir --user -r requirements.txt
 
-# Pre-download SimLBR models during build to cache them
+# Vendor SimLBR (no setup.py/pyproject.toml in upstream repo)
+# Clone into /app/vendor/simlbr and add to PYTHONPATH
+RUN mkdir -p /app/vendor/simlbr && \
+    git clone --depth 1 https://github.com/mvrl/SimLBR.git /app/vendor/simlbr-source && \
+    cp -r /app/vendor/simlbr-source/simlbr /app/vendor/simlbr/ && \
+    echo "✅ SimLBR vendored successfully"
+
+# Pre-download SimLBR models during build to cache them (graceful on failure)
+ENV PYTHONPATH=/app/vendor/simlbr:$PYTHONPATH
 RUN python -c "
 from simlbr import SimLBR
 for model in ['aigc', 'genimage']:
-    print(f'Downloading SimLBR-{model}...')
-    SimLBR.from_pretrained(model)
-    print(f'SimLBR-{model} cached successfully')
-" 2>&1 | tee /tmp/model_download.log || echo "Model download had issues, will retry at runtime"
+    try:
+        print(f'Downloading SimLBR-{model}...')
+        SimLBR.from_pretrained(model)
+        print(f'SimLBR-{model} cached successfully')
+    except Exception as e:
+        print(f'⚠️  SimLBR-{model} pre-download failed (will retry at runtime): {e}')
+" 2>&1 | tee /tmp/model_download.log || echo "Model pre-download had issues, will retry at runtime"
 
 # Production stage
 FROM python:3.12-slim
@@ -41,6 +52,10 @@ WORKDIR /app
 COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
 
+# Copy vendored SimLBR from builder
+COPY --from=builder /app/vendor/simlbr /app/vendor/simlbr
+ENV PYTHONPATH=/app/vendor/simlbr:$PYTHONPATH
+
 # Copy application code
 COPY backend/app ./app
 
@@ -55,4 +70,4 @@ RUN chmod +x /app/start.sh
 EXPOSE $PORT
 
 # Run the application
-CMD [\"/app/start.sh\"]  # Will run with enhanced logging
+CMD ["/app/start.sh"]
